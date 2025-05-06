@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inscription</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/sign-up.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div class="left-section">
+            <h1>Explorez la segmentation avancée</h1>
+            <img src="{{ url_for('static', filename='assets/sign-upSvg.svg') }}" alt="Illustration">
+        </div>
+        <div class="right-section">
+            <h2>S'inscrire</h2>
+            <form method="POST" action="{{ url_for('signup') }}">
+                <input type="text" name="username" placeholder="Username" required>
+                <input type="password" name="password" placeholder="Mot de passe" required>
+                <button type="submit">S'inscrire</button>
+            </form>
+            <p><a href="{{ url_for('login') }}">Vous avez déjà un compte ?</a></p>
+        </div>
+    </div>
+</body>
+</html>

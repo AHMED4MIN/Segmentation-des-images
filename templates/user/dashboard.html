@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>User Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/user-dashboard.css') }}">
+</head>
+<body>
+    <h1>Welcome, {{ session.username }}!</h1>
+    <a href="{{ url_for('logout') }}">Logout</a>
+
+    <div class="upload-section">
+        <h2>Upload Image for Segmentation</h2>
+        
+        {% if error %}
+            <div class="alert error">{{ error }}</div>
+        {% endif %}
+        
+        <form method="POST" enctype="multipart/form-data">
+            <input type="file" name="image" accept="image/*" required>
+            <button type="submit">Process Image</button>
+        </form>
+
+        {% if original_image and result_image %}
+        <div class="results">
+            <div class="image-pair">
+                <h3>Original Image</h3>
+                <img src="{{ url_for('static', filename='uploads/' + original_image) }}" 
+                     alt="Original image">
+                
+                <h3>Segmentation Result</h3>
+                <img src="{{ url_for('static', filename='uploads/' + result_image) }}" 
+                     alt="Segmentation result">
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</body>
+</html>

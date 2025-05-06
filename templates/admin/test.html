@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin-dashboard.css') }}">
+</head>
+<body>
+    <div class="admin-container">
+        <div class="admin-sidebar">
+            <h2>Admin Panel</h2>
+            <nav>
+                <ul>
+                    <li><a href="#segmentation" class="nav-link active">Segmentation Models</a></li>
+                    <li><a href="#classification" class="nav-link">Classification Models</a></li>
+                    <li><a href="#users" class="nav-link">User Management</a></li>
+                </ul>
+            </nav>
+            <div class="logout-container">
+                <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
+            </div>
+            </div>
+            
+            <div class="admin-main">
+                <!-- flash message -->
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                {% for category, message in messages %}
+                <div class="alert alert-{{ category }}">{{ message }}</div>
+                {% endfor %}
+                {% endif %}
+                {% endwith %}
+            
+                <div class="dashboard-sections">
+                    <!-- Segmentation Section -->
+                    <div id="segmentation" class="dashboard-section active">
+                        <div class="section">
+                            <h2>Segmentation Models</h2>
+                            <form class="search-form" method="GET" action="{{ url_for('admin_dashboard') }}">
+                                <input type="text" name="search_seg" placeholder="Search segmentation models...">
+                                <button type="submit">Search</button>
+                            </form>
+                            <!-- Existing model upload form -->
+                            <form method="POST" action="{{ url_for('upload_model') }}" enctype="multipart/form-data">
+                                <input type="text" name="model_name" placeholder="Model Name" required>
+                                <input type="file" name="model_file" accept=".pth" required>
+                                <button type="submit">Upload Model</button>
+                            </form>
+                            <!-- Existing model list with segmentation models -->
+                            <h2>Models</h2>
+                            <ul>
+                                {% for model in models %}
+                                <li>
+                                    {{ model.model_name }} ({{ model.upload_date }})
+                                    <a href="{{ url_for('delete_model', model_id=model.id) }}">Delete</a>
+                                </li>
+                                {% endfor %}
+                            </ul>
+                
+                        </div>
+                </div>
+
+                <!-- Classification Section -->
+                <div id="classification" class="dashboard-section">
+                    <!-- ... existing classification content ... -->
+                    <div class="section">
+                        <h2>Classification Models</h2>
+                        <form class="search-form" method="GET" action="{{ url_for('admin_dashboard') }}">
+                            <input type="text" name="search_cls" placeholder="Search classification models...">
+                            <button type="submit">Search</button>
+                        </form>
+                        <form method="POST" action="{{ url_for('upload_model') }}" enctype="multipart/form-data">
+                            <input type="text" name="model_name" placeholder="Model Name" required>
+                            <input type="file" name="model_file" accept=".pth" required>
+                            <input type="hidden" name="model_type" value="classification">
+                            <button type="submit">Upload Classification Model</button>
+                        </form>
+                        <ul>
+                            {% for model in classification_models %}
+                            <li>
+                                {{ model.model_name }} ({{ model.upload_date }})
+                                <a href="{{ url_for('delete_model', model_id=model.id) }}">Delete</a>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- User Management Section -->
+                <div id="users" class="dashboard-section">
+                    <!-- ... existing user management content ... -->
+                    <div class="section">
+                        <h2>User Management</h2>
+                        <form method="GET" action="{{ url_for('admin_dashboard') }}">
+                            <input type="text" name="search_user" placeholder="Search users...">
+                            <button type="submit">Search</button>
+                        </form>
+                        <ul class="user-list">
+                            {% for user in users %}
+                            <li>
+                                {{ user.username }} ({{ user.created_at }})
+                                {% if not user.is_admin %}
+                                <a href="{{ url_for('delete_user', user_id=user.id) }}"
+                                    onclick="return confirm('Are you sure?')">Delete</a>
+                                {% endif %}
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Sidebar navigation
+            const navLinks = document.querySelectorAll('.nav-link');
+            
+            navLinks.forEach(link => {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const targetId = this.getAttribute('href').substring(1);
+                    
+                    // Remove active classes
+                    document.querySelectorAll('.nav-link.active').forEach(el => el.classList.remove('active'));
+                    document.querySelectorAll('.dashboard-section.active').forEach(el => el.classList.remove('active'));
+                    
+                    // Add active classes
+                    this.classList.add('active');
+                    document.getElementById(targetId).classList.add('active');
+                });
+            });
+        });
+    </script>
+</body>
+</html>

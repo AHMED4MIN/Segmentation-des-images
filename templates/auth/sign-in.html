@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connexion - Espace personnel</title>
+    <link rel="stylesheet" href="../static/css/sign-in.css">
+    <link href="https://fonts.googleapis.com/css2?family=Jura:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Calistoga&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <div class="left-section">
+            <h1>Explorez <br> la segmentation avancée</h1>
+            <img src="{{ url_for('static', filename='assets/sign-inSvg.svg') }}" alt="Illustration login">
+        </div>
+        <div class="right-section">
+            <h2>Se Connecter</h2>
+            <div class="flash-messages">
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ category }}">{{ message }}</div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+            </div>
+            <!-- Fix form action -->
+            <form action="{{ url_for('login') }}" method="post">
+                <input type="text" name="username" placeholder="username" required>
+                <input type="password" name="password" placeholder="Mot de passe" required>
+                <button type="submit">Se Connecter</button>
+            </form>
+            <p><a href="#" id="forgot-password-link">Mot de passe oublie ?</a></p>
+            <p><a href="{{ url_for('signup') }}">Vous n'avez pas de compte ?</a></p>
+        </div>
+    </div>
+</body>
+<script>
+    // Fonction pour afficher la pop-up
+    function showForgotPasswordPopup() {
+        alert("Veuillez contacter l'administration de votre institut pour reinitialiser votre mot de passe.");
+    }
+
+    // Ajouter un ecouteur d'evenement au lien "Mot de passe oublie"
+    document.getElementById("forgot-password-link").addEventListener("click", function(event) {
+        event.preventDefault(); // Empecher le comportement par defaut du lien
+        showForgotPasswordPopup(); // Afficher la pop-up
+    });
+</script>
+</html>
