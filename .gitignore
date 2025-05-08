@@ -1,0 +1,4 @@
+# Ignore all .pth, .pt, pt5 files
+*.pth
+*.pt
+*.pt5

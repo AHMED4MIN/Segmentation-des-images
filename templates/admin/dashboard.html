@@ -50,7 +50,7 @@
                             <!-- Existing model list with segmentation models -->
                             <h2>Models</h2>
                             <ul>
-                                {% for model in models %}
+                                {% for model in segmentation_models %}
                                 <li>
                                     {{ model.model_name }} ({{ model.upload_date }})
                                     <a href="{{ url_for('delete_model', model_id=model.id) }}">Delete</a>

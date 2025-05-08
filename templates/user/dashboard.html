@@ -1,39 +1,87 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>User Dashboard</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <title>Medical AI Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/user-dashboard.css') }}">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 </head>
 <body>
-    <h1>Welcome, {{ session.username }}!</h1>
-    <a href="{{ url_for('logout') }}">Logout</a>
-
-    <div class="upload-section">
-        <h2>Upload Image for Segmentation</h2>
-        
-        {% if error %}
-            <div class="alert error">{{ error }}</div>
-        {% endif %}
-        
-        <form method="POST" enctype="multipart/form-data">
-            <input type="file" name="image" accept="image/*" required>
-            <button type="submit">Process Image</button>
-        </form>
-
-        {% if original_image and result_image %}
-        <div class="results">
-            <div class="image-pair">
-                <h3>Original Image</h3>
-                <img src="{{ url_for('static', filename='uploads/' + original_image) }}" 
-                     alt="Original image">
+    <div class="main-container">
+        <!-- Category Selection View -->
+        <div class="category-view" id="categoryView">
+            <h1>Welcome, {{ session.username }}!</h1>
+            <div class="card-container">
+                <div class="category-card" data-category="eyes">
+                    <div class="card-content">
+                        <h2>👁️ Eyes Analysis</h2>
+                        <div class="options">
+                            <button class="option-btn" data-type="segmentation">Segmentation</button>
+                            <button class="option-btn" data-type="classification">Classification</button>
+                        </div>
+                    </div>
+                </div>
                 
-                <h3>Segmentation Result</h3>
-                <img src="{{ url_for('static', filename='uploads/' + result_image) }}" 
-                     alt="Segmentation result">
+                <div class="category-card" data-category="xray">
+                    <div class="card-content">
+                        <h2>🩻 X-Ray Analysis</h2>
+                        <div class="options">
+                            <button class="option-btn" data-type="segmentation">Segmentation</button>
+                            <button class="option-btn" data-type="classification">Classification</button>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
-        {% endif %}
+
+        <!-- Processing View (Hidden by default) -->
+        <div class="processing-view" id="processingView" style="display: none;">
+            <div class="sidebar">
+                <h3 class="current-category" id="currentCategory">👁️ Eyes</h3>
+                <div class="sidebar-options">
+                    <button class="sidebar-btn active" data-type="segmentation">Segmentation</button>
+                    <button class="sidebar-btn" data-type="classification">Classification</button>
+                    <button class="switch-category-btn" id="switchCategory">Switch to X-Ray</button>
+                    <button class="logout-btn" onclick="window.location.href='/logout'">Logout</button>
+                </div>
+            </div>
+
+            <div class="main-content">
+                <div class="model-selection">
+                    <select id="modelSelect" class="model-dropdown">
+                        <option value="">Select a Model</option>
+                        {% for model in models %}
+                        <option value="{{ model.id }}">{{ model.model_name }}</option>
+                        {% endfor %}
+                    </select>
+                    <label class="custom-upload">
+                        <input type="file" id="customModel" accept=".pt,.pth" hidden>
+                        Upload Custom Model
+                    </label>
+                </div>
+
+                <div class="upload-section">
+                    <div class="image-upload-box" id="dropZone">
+                        <input type="file" id="imageInput" accept="image/*" hidden>
+                        <p>Drag & Drop or Click to Upload Image</p>
+                        <img id="previewImage" src="" alt="Preview">
+                    </div>
+                    <button class="process-btn" id="processBtn">Process Image</button>
+                </div>
+
+                <div class="results-section">
+                    <div class="result-container">
+                        <h3>Original Image</h3>
+                        <img id="originalResult" src="" alt="Original">
+                    </div>
+                    <div class="result-container">
+                        <h3>Processed Result</h3>
+                        <img id="processedResult" src="" alt="Processed">
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
+
+    <script src="{{ url_for('static', filename='js/user-dashboard.js') }}"></script>
 </body>
 </html>

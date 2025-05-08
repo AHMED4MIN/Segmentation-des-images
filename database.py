@@ -1,18 +1,35 @@
+# database.py (updated)
 import mysql.connector
 from mysql.connector import Error
+
 
 def create_connection():
     return mysql.connector.connect(
         host='localhost',
         user='root',
         password='amine3214',
-        database='segmentation_db'
+        database='segmentation_db',
+        
+        
     )
 
 def initialize_database():
     connection = create_connection()
     cursor = connection.cursor()
     
+    # Updated models table with model_format
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS models (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            model_name VARCHAR(255) NOT NULL,
+            model_type ENUM('segmentation', 'classification') NOT NULL,
+            model_format ENUM('torchscript', 'state_dict') NOT NULL,
+            model_path VARCHAR(255) NOT NULL,  
+            upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )   
+    """)
+    
+    # Keep the rest of the tables unchanged
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -20,16 +37,6 @@ def initialize_database():
             password VARCHAR(255) NOT NULL,
             is_admin BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS models (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        model_name VARCHAR(255) NOT NULL,
-        model_type ENUM('segmentation', 'classification') NOT NULL,
-        model_data LONGBLOB NOT NULL,
-        upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
     
