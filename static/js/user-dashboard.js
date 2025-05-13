@@ -2,7 +2,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     initializeEventHandlers();
     resetImageDisplays();
-    loadProcessingView('eyes', 'segmentation');
+    loadProcessingView('segmentation');
 });
 
 function initializeEventHandlers() {
@@ -24,6 +24,25 @@ function initializeEventHandlers() {
 
     // Bouton de traitement
     document.getElementById('processBtn').addEventListener('click', processImage);
+
+    // Gestion des boutons de navigation
+    document.querySelectorAll('.sidebar-btn').forEach(btn => {
+        btn.addEventListener('click', switchProcessType);
+    });
+
+    // Upload de modèle personnalisé
+    document.getElementById('uploadModelBtn').addEventListener('click', () => {
+        document.getElementById('modelUpload').click();
+    });
+
+    document.getElementById('modelUpload').addEventListener('change', handleModelUpload);
+}
+
+function switchProcessType(e) {
+    document.querySelectorAll('.sidebar-btn').forEach(b => b.classList.remove('active'));
+    e.target.classList.add('active');
+    const processType = e.target.dataset.type;
+    loadProcessingView(processType);
 }
 
 function resetImageDisplays() {
@@ -118,18 +137,8 @@ async function processImage() {
 
 function toggleLoading(isLoading) {
     const btn = document.getElementById('processBtn');
-    const spinner = document.createElement('div');
-    spinner.className = 'loading-spinner';
-    
-    if (isLoading) {
-        btn.disabled = true;
-        btn.innerHTML = 'Traitement en cours ';
-        btn.appendChild(spinner);
-        spinner.style.display = 'inline-block';
-    } else {
-        btn.disabled = false;
-        btn.innerHTML = 'Traiter l\'image';
-    }
+    btn.classList.toggle('loading', isLoading);
+    btn.disabled = isLoading;
 }
 
 function handleProcessingError(error) {
@@ -139,9 +148,10 @@ function handleProcessingError(error) {
     resetFileInput();
 }
 
-function loadProcessingView() {
-    // Charger les modèles de segmentation
-    fetchModels('segmentation');
+function loadProcessingView(processType) {
+    document.querySelector('.current-category').textContent = 
+        processType === 'segmentation' ? '👁️ Analyse Oculaire' : '📊 Classification';
+    fetchModels(processType);
 }
 
 async function fetchModels(processType) {
@@ -168,4 +178,31 @@ function populateModelDropdown(models) {
         option.textContent = model.model_name;
         dropdown.appendChild(option);
     });
+}
+
+async function handleModelUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('model', file);
+
+    try {
+        const response = await fetch('/upload-model', {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) throw new Error('Échec de l\'upload');
+        
+        alert('Modèle uploadé avec succès !');
+        const activeType = document.querySelector('.sidebar-btn.active').dataset.type;
+        fetchModels(activeType);
+        
+    } catch (error) {
+        console.error('Erreur d\'upload:', error);
+        alert("Erreur lors de l'upload du modèle: " + error.message);
+    } finally {
+        e.target.value = '';
+    }
 }

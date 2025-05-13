@@ -14,6 +14,7 @@
                 <h3 class="current-category">👁️ Analyse Oculaire</h3>
                 <div class="sidebar-options">
                     <button class="sidebar-btn active" data-type="segmentation">Segmentation</button>
+                    <button class="sidebar-btn" data-type="classification">Classification</button>
                     <button class="logout-btn" onclick="window.location.href='/logout'">Déconnexion</button>
                 </div>
             </div>
@@ -26,6 +27,10 @@
                         <option value="{{ model.id }}">{{ model.model_name }}</option>
                         {% endfor %}
                     </select>
+                    <button id="uploadModelBtn" class="model-upload-btn" title="Upload custom model">
+                        📤
+                    </button>
+                    <input type="file" id="modelUpload" accept=".pth,.h5,.onnx" hidden>
                 </div>
 
                 <div class="upload-section">
@@ -35,7 +40,6 @@
                     </div>
                     <button class="process-btn" id="processBtn">
                         <span class="btn-text">Traiter l'image</span>
-                        <div class="loading-spinner"></div>
                     </button>
                 </div>
             

@@ -33,4 +33,4 @@ def check_model(model_path):
 
 if __name__ == "__main__":
     # Update this path to match your actual model file
-    check_model("stored_models/segmentation/20250508154250_deeplabv3_resnet50.pth")
+    check_model("stored_models/segmentation/20250513190426_ASE_Res_Unet_WCE_Drive.pth")
