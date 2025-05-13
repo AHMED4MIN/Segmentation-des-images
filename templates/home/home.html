@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SegmentAI</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css') }}">
+  <link href="https://fonts.googleapis.com/css2?family=Jura:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Calistoga&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <header>
+    <nav class="navbar">
+      <div class="logo">
+        <img src="{{ url_for('static', filename='assets/logo-white.png') }}" alt="SegmentAI Logo">
+      </div>
+      <ul class="nav-links">
+        <li><a href="#">Page d'Accueil</a></li>
+        <li><a href="#">Introduction à la segmentation</a></li>
+        <li><a href="#">Fonctionnalités</a></li>
+        <li><a href="#">Contactez Nous</a></li>
+      </ul>
+      <div class="nav-button">
+        <a href="{{ url_for('login') }}" class="btn-essayer">Se connecter</a>
+        <a href="{{ url_for('signup') }}" class="btn-essayer">S'inscrire</a>
+      </div>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <div class="hero-content">
+      <h1>Transformez vos images avec une<br>segmentation intelligente</h1>
+      <p>Découvrez notre outil de segmentation d'images qui vous permet de séparer facilement les objets et les régions. Téléchargez vos images et laissez notre technologie avancée faire le reste.</p>
+      <div class="hero-buttons">
+        <a href="{{ url_for('login') }}" class="btn-commencer">Commencer</a>
+        <a href="#" class="btn-en-savoir-plus">En savoir plus</a>
+      </div>
+    </div>
+  </section>
+
+</body>
+</html>

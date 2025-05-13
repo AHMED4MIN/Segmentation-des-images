@@ -17,7 +17,7 @@ def initialize_database():
     connection = create_connection()
     cursor = connection.cursor()
     
-    # Updated models table with model_format
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS models (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -29,10 +29,13 @@ def initialize_database():
         )   
     """)
     
-    # Keep the rest of the tables unchanged
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INT AUTO_INCREMENT PRIMARY KEY,
+            first_name VARCHAR(255) NOT NULL,   # New
+            last_name VARCHAR(255) NOT NULL,    # New
+            cin VARCHAR(20) UNIQUE NOT NULL,    # New (CIN as unique string)
+            date_of_birth DATE NOT NULL,        # New
             username VARCHAR(255) UNIQUE NOT NULL,
             password VARCHAR(255) NOT NULL,
             is_admin BOOLEAN DEFAULT FALSE,

@@ -1,0 +1,141 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body,
+html {
+  height: 100%;
+  font-family: 'Poppins', sans-serif;
+}
+
+header {
+  position: fixed;
+  z-index: 10;
+  top: 15px;
+  left: 0;
+  width: 100%;
+  background: transparent;
+}
+
+.navbar {
+  height: 60px;
+  background-color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+}
+
+.logo img {
+  height: 300px;
+  width: auto;
+  margin-top: 35px;
+}
+
+.nav-links {
+  list-style: none;
+  display: flex;
+  gap: 30px;
+}
+
+.nav-links li a {
+  text-decoration: none;
+  color: white;
+  font-weight: 500;
+  font-size: 18px;
+
+}
+
+
+.nav-button {
+  display: flex;
+  gap: 35px;
+  align-items: center;
+  margin-right: 45px;
+}
+
+.nav-button .btn-essayer {
+  padding: 10px 25px;
+  background-color: #00c17c;
+  color: white;
+  text-decoration: none;
+  border-radius: 10px;
+  font-weight: 600;
+  transition: background 0.3s ease;
+}
+
+.nav-button .btn-essayer:hover {
+  background-color: #05C7B8;
+  color: black;
+}
+
+.hero {
+  background: url('../assets/home.jpg') no-repeat center center/cover;
+  height: 100vh;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding-left: 100px;
+}
+
+
+
+.hero-content {
+  max-width: 600px;
+  color: white;
+}
+
+.hero-content h1 {
+  font-size: 48px;
+  font-weight: 700;
+  margin-bottom: 20px;
+  line-height: 1.2;
+}
+
+.hero-content p {
+  font-size: 18px;
+  font-weight: 300;
+  margin-bottom: 30px;
+  line-height: 1.5;
+}
+
+.hero-buttons {
+  display: flex;
+  gap: 20px;
+}
+
+.hero-buttons .btn-commencer,
+.hero-buttons .btn-en-savoir-plus {
+  padding: 12px 25px;
+  border: none;
+  text-decoration: none;
+  font-size: 16px;
+  border-radius: 30px;
+  font-weight: 600;
+  transition: all 0.3s ease;
+}
+
+.hero-buttons .btn-commencer {
+  background-color: white;
+  color: black;
+}
+
+.hero-buttons .btn-commencer:hover {
+  background-color: #00a56b;
+}
+
+.hero-buttons .btn-en-savoir-plus {
+  background-color: transparent;
+  border: 2px solid white;
+  color: white;
+}
+
+.hero-buttons .btn-en-savoir-plus:hover {
+  background-color: white;
+  color: #027A71;
+}
+
+

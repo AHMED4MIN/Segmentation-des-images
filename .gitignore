@@ -2,3 +2,6 @@
 *.pth
 *.pt
 *.pt5
+
+# Ignore folders
+uploads/

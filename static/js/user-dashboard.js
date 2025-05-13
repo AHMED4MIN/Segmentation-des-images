@@ -1,91 +1,171 @@
+// user-dashboard.js
 document.addEventListener('DOMContentLoaded', () => {
-    // Category Selection
-    document.querySelectorAll('.option-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const category = btn.closest('.category-card').dataset.category;
-            const processType = btn.dataset.type;
-            loadProcessingView(category, processType);
-        });
-    });
+    initializeEventHandlers();
+    resetImageDisplays();
+    loadProcessingView('eyes', 'segmentation');
+});
 
-    // File Upload Handling
+function initializeEventHandlers() {
+    // Gestion du téléchargement d'image
     const dropZone = document.getElementById('dropZone');
     const imageInput = document.getElementById('imageInput');
     
     dropZone.addEventListener('click', () => imageInput.click());
-    
     imageInput.addEventListener('change', handleFileSelect);
     
-    dropZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        dropZone.classList.add('dragover');
+    // Gestion drag and drop
+    ['dragover', 'dragleave', 'drop'].forEach(event => {
+        dropZone.addEventListener(event, preventDefaults);
     });
 
-    dropZone.addEventListener('dragleave', () => {
-        dropZone.classList.remove('dragover');
-    });
+    dropZone.addEventListener('dragover', highlightDropZone);
+    dropZone.addEventListener('dragleave', unhighlightDropZone);
+    dropZone.addEventListener('drop', handleDrop);
 
-    dropZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        dropZone.classList.remove('dragover');
-        const files = e.dataTransfer.files;
-        if(files.length) handleFileSelect({ target: { files } });
-    });
-
-    // Process Button
+    // Bouton de traitement
     document.getElementById('processBtn').addEventListener('click', processImage);
-});
+}
 
-function loadProcessingView(category, processType) {
-    document.getElementById('categoryView').style.display = 'none';
-    document.getElementById('processingView').style.display = 'grid';
-    document.getElementById('currentCategory').textContent = 
-        `${category === 'eyes' ? '👁️ Eyes' : '🩻 X-Ray'} Analysis`;
-    
-    // Update active sidebar button
-    document.querySelectorAll('.sidebar-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.type === processType);
-    });
-    
-    // TODO: Load appropriate models based on category and processType
+function resetImageDisplays() {
+    const transparent = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+    document.getElementById('originalResult').src = transparent;
+    document.getElementById('processedResult').src = transparent;
+}
+
+function preventDefaults(e) {
+    e.preventDefault();
+    e.stopPropagation();
+}
+
+function highlightDropZone() {
+    document.getElementById('dropZone').classList.add('dragover');
+}
+
+function unhighlightDropZone() {
+    document.getElementById('dropZone').classList.remove('dragover');
+}
+
+function handleDrop(e) {
+    const dt = e.dataTransfer;
+    const files = dt.files;
+    document.getElementById('imageInput').files = files;
+    handleFileSelect({ target: { files } });
 }
 
 function handleFileSelect(e) {
-    const file = e.target.files[0];
-    if(!file.type.startsWith('image/')) return alert('Please upload an image file');
-    
-    const reader = new FileReader();
-    reader.onload = (e) => {
-        const preview = document.getElementById('previewImage');
-        preview.src = e.target.result;
-        preview.style.display = 'block';
-    };
-    reader.readAsDataURL(file);
+    const imageInput = document.getElementById('imageInput');
+    const file = imageInput.files[0];
+
+    if (!file || !file.type.startsWith('image/')) {
+        alert('Veuillez télécharger une image valide');
+        resetFileInput();
+        return;
+    }
+    showUploadSuccess();
+}
+
+function showUploadSuccess() {
+    const dropZone = document.getElementById('dropZone');
+    dropZone.classList.add('upload-success');
+    setTimeout(() => dropZone.classList.remove('upload-success'), 2000);
+}
+
+function resetFileInput() {
+    document.getElementById('imageInput').value = '';
 }
 
 async function processImage() {
-    const file = document.getElementById('imageInput').files[0];
+    const imageInput = document.getElementById('imageInput');
+    const file = imageInput.files[0];
     const modelId = document.getElementById('modelSelect').value;
     
-    if(!file) return alert('Please select an image');
-    if(!modelId) return alert('Please select a model');
+    if (!file || !modelId) {
+        alert('Veuillez sélectionner une image et un modèle');
+        return;
+    }
 
-    const formData = new FormData();
-    formData.append('image', file);
-    formData.append('model_id', modelId);
+    toggleLoading(true);
 
     try {
+        const formData = new FormData();
+        formData.append('image', file);
+        formData.append('model_id', modelId);
+
         const response = await fetch('/process-image', {
             method: 'POST',
             body: formData
         });
-        
+
+        if (!response.ok) {
+            throw new Error(`Erreur HTTP ! statut : ${response.status}`);
+        }
+
         const result = await response.json();
-        if(result.error) throw new Error(result.error);
         
+        if (result.error) {
+            throw new Error(result.error);
+        }
+
         document.getElementById('originalResult').src = result.original;
         document.getElementById('processedResult').src = result.processed;
+        
     } catch (error) {
-        alert(`Processing failed: ${error.message}`);
+        handleProcessingError(error);
+    } finally {
+        toggleLoading(false);
     }
+}
+
+function toggleLoading(isLoading) {
+    const btn = document.getElementById('processBtn');
+    const spinner = document.createElement('div');
+    spinner.className = 'loading-spinner';
+    
+    if (isLoading) {
+        btn.disabled = true;
+        btn.innerHTML = 'Traitement en cours ';
+        btn.appendChild(spinner);
+        spinner.style.display = 'inline-block';
+    } else {
+        btn.disabled = false;
+        btn.innerHTML = 'Traiter l\'image';
+    }
+}
+
+function handleProcessingError(error) {
+    console.error('Erreur de traitement:', error);
+    alert(`Échec du traitement : ${error.message}`);
+    resetImageDisplays();
+    resetFileInput();
+}
+
+function loadProcessingView() {
+    // Charger les modèles de segmentation
+    fetchModels('segmentation');
+}
+
+async function fetchModels(processType) {
+    try {
+        const response = await fetch(`/get-models?type=${processType}`);
+        if (!response.ok) throw new Error('Échec du chargement des modèles');
+        
+        const models = await response.json();
+        populateModelDropdown(models);
+        
+    } catch (error) {
+        console.error('Erreur de chargement des modèles:', error);
+        alert('Impossible de charger les modèles');
+    }
+}
+
+function populateModelDropdown(models) {
+    const dropdown = document.getElementById('modelSelect');
+    dropdown.innerHTML = '<option value="">Sélectionner un modèle</option>';
+    
+    models.forEach(model => {
+        const option = document.createElement('option');
+        option.value = model.id;
+        option.textContent = model.model_name;
+        dropdown.appendChild(option);
+    });
 }

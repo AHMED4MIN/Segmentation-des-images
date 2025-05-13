@@ -3,15 +3,15 @@ from database import create_connection
 import mysql.connector
 from mysql.connector import Error
 import torch
-import io
 import os
 from datetime import datetime
 from PIL import Image
 import traceback
 from werkzeug.security import generate_password_hash, check_password_hash
+import torch.nn as nn
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key_here'
+app.secret_key = 'your_secure_secret_key_here'
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 1600 * 1024 * 1024
 
@@ -19,66 +19,60 @@ MODEL_BASE_DIR = "stored_models"
 SEGMENTATION_DIR = os.path.join(MODEL_BASE_DIR, "segmentation")
 CLASSIFICATION_DIR = os.path.join(MODEL_BASE_DIR, "classification")
 
-# Create directories if they don't exist
 os.makedirs(SEGMENTATION_DIR, exist_ok=True)
 os.makedirs(CLASSIFICATION_DIR, exist_ok=True)
 
+#Unet model
+class UNet(nn.Module):
+    def __init__(self, in_channels=3, out_channels=1):
+        super(UNet, self).__init__()
+        
+        def double_conv(in_ch, out_ch):
+            return nn.Sequential(
+                nn.Conv2d(in_ch, out_ch, 3, padding=1),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(out_ch, out_ch, 3, padding=1),
+                nn.ReLU(inplace=True)
+            )
+        
+        # Downsampling path
+        self.down1 = double_conv(in_channels, 64)
+        self.down2 = double_conv(64, 128)
+        self.down3 = double_conv(128, 256)
+        self.pool = nn.MaxPool2d(2)
+        
+        # Upsampling path
+        self.up2 = nn.ConvTranspose2d(256, 128, 2, stride=2)
+        self.up1 = nn.ConvTranspose2d(128, 64, 2, stride=2)
+        
+        # Final convolution
+        self.conv_last = nn.Conv2d(64, out_channels, 1)
 
+    def forward(self, x):
+        # Encoder
+        conv1 = self.down1(x)
+        x = self.pool(conv1)
+        conv2 = self.down2(x)
+        x = self.pool(conv2)
+        x = self.down3(x)
+        
+        # Decoder
+        x = self.up2(x)
+        x = torch.cat([x, conv2], dim=1)
+        x = self.up1(x)
+        x = torch.cat([x, conv1], dim=1)
+        
+        return torch.sigmoid(self.conv_last(x))
+    
 @app.before_request
 def require_login():
-    allowed_routes = ['login', 'signup', 'static', 'uploaded_file']
+    allowed_routes = ['login', 'signup', 'static', 'uploaded_file', 'home']  
     if request.endpoint not in allowed_routes and not session.get('logged_in'):
         return redirect(url_for('login'))
 
-# Simple UNet definition (for state_dict .pth files)
-class UNet(torch.nn.Module):
-    def __init__(self):
-        super(UNet, self).__init__()
-        self.conv = torch.nn.Conv2d(3, 1, kernel_size=3)  # Minimal example
-
-    def forward(self, x):
-        return self.conv(x)
-
-def get_model_from_db(model_id):
-    connection = create_connection()
-    cursor = connection.cursor(dictionary=True)
-    cursor.execute("SELECT model_path, model_format FROM models WHERE id = %s", (model_id,))
-    result = cursor.fetchone()
-    cursor.close()
-    connection.close()
-
-    # Construct full path
-    model_type = result['model_path'].split('/')[0]  # 'segmentation' or 'classification'
-    full_path = os.path.join(MODEL_BASE_DIR, result['model_path'])
-
-    if result['model_format'] == 'torchscript':
-        return torch.jit.load(full_path)
-    else:
-        model = UNet()  # Your predefined architecture
-        model.load_state_dict(torch.load(full_path))
-        return model
-
-def save_uploaded_file(file):
-    if file.filename == '':
-        return None
-    filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{file.filename}"
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(filepath)
-    return filename
-
-def save_classification_result(output, save_path):
-    # Temporary implementation until classification is ready
-    raise NotImplementedError("Classification processing not implemented yet")
-    
-    # This will prevent plt errors while maintaining the interface
-    # When ready, implement with:
-    # 1. Import matplotlib.pyplot as plt
-    # 2. Add classification visualization logic
-    # 3. Install matplotlib if needed
-
 @app.route('/')
 def home():
-    return redirect(url_for('login'))
+    return render_template('home/home.html') 
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -130,30 +124,44 @@ def signup():
         return redirect(url_for('user_dashboard'))
     
     if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
+        first_name = request.form.get('first_name', '').strip()
+        last_name = request.form.get('last_name', '').strip()
+        cin = request.form.get('cin', '').strip()
+        dob_str = request.form.get('date_of_birth')  # Format: dd/mm/yyyy
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '').strip()
         
-        if not username or not password:
-            flash('Both fields are required', 'danger')
+        if not all([first_name, last_name, cin, dob_str, username, password]):
+            flash('Tous les champs sont obligatoires', 'danger')
             return redirect(url_for('signup'))
         
         try:
             connection = create_connection()
             cursor = connection.cursor()
+
+            cursor.execute("SELECT * FROM users WHERE cin = %s OR username = %s", (cin, username))
+            if cursor.fetchone():
+                flash('CIN ou nom d\'utilisateur déjà utilisé', 'danger')
+                return redirect(url_for('signup'))
             hashed_pw = generate_password_hash(password)
-            cursor.execute("INSERT INTO users (username, password) VALUES (%s, %s)", (username, hashed_pw))
+            cursor.execute("""
+                INSERT INTO users 
+                (first_name, last_name, cin, date_of_birth, username, password)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (first_name, last_name, cin, dob_str, username, hashed_pw))
             connection.commit()
-            flash('Account created! Please login', 'success')
+            flash('Compte créé avec succès! Connectez-vous', 'success')
             return redirect(url_for('login'))
+
         except mysql.connector.IntegrityError:
-            flash('Username exists', 'danger')
+            flash('Erreur de base de données', 'danger')
         except Exception as e:
-            flash('Registration failed', 'danger')
+            flash(f'Erreur: {str(e)}', 'danger')
         finally:
-            cursor.close()
-            connection.close()
+            if cursor: cursor.close()
+            if connection: connection.close()
     
-    return render_template('auth/sign-up.html')
+    return render_template('auth/sign-up.html')                                                                                                                                                                                                                                                                                                                                                                                                         
 
 @app.route('/logout')
 def logout():
@@ -175,7 +183,6 @@ def admin_dashboard():
         search_cls = request.args.get('search_cls', '')
         search_user = request.args.get('search_user', '')
 
-        # Segmentation models
         cursor.execute("""
             SELECT * FROM models 
             WHERE model_type = 'segmentation'
@@ -184,7 +191,6 @@ def admin_dashboard():
         """, (f'%{search_seg}%',))
         segmentation_models = cursor.fetchall()
 
-        # Classification models
         cursor.execute("""
             SELECT * FROM models 
             WHERE model_type = 'classification'
@@ -193,7 +199,6 @@ def admin_dashboard():
         """, (f'%{search_cls}%',))
         classification_models = cursor.fetchall()
 
-        # Users
         cursor.execute("""
             SELECT * FROM users 
             WHERE username LIKE %s 
@@ -218,7 +223,6 @@ def upload_model():
     connection = None
     cursor = None
     try:
-        # Validate form data
         model_name = request.form.get('model_name')
         model_file = request.files.get('model_file')
         model_type = request.form.get('model_type', 'segmentation')
@@ -231,7 +235,6 @@ def upload_model():
             flash('No file selected', 'danger')
             return redirect(url_for('admin_dashboard'))
 
-        # Validate file extension and determine model format
         file_ext = model_file.filename.rsplit('.', 1)[1].lower() if '.' in model_file.filename else ''
         allowed_extensions = {'pt', 'pth'}
         
@@ -241,7 +244,6 @@ def upload_model():
         
         model_format = 'torchscript' if file_ext == 'pt' else 'state_dict'
 
-        # Validate file size (300MB limit)
         MAX_SIZE = 300 * 1024 * 1024
         model_file.seek(0, os.SEEK_END)
         file_size = model_file.tell()
@@ -251,19 +253,15 @@ def upload_model():
             flash(f'File too large ({file_size/1024/1024:.2f}MB > {MAX_SIZE/1024/1024}MB)', 'danger')
             return redirect(url_for('admin_dashboard'))
 
-        # Create model storage directories if needed
         save_dir = os.path.join(MODEL_BASE_DIR, model_type)
         os.makedirs(save_dir, exist_ok=True)
 
-        # Generate unique filename
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         filename = f"{timestamp}_{model_file.filename}"
         filepath = os.path.join(save_dir, filename)
 
-        # Save file to filesystem
         model_file.save(filepath)
 
-        # Store metadata in database
         connection = create_connection()
         cursor = connection.cursor()
         
@@ -276,46 +274,31 @@ def upload_model():
         
         flash(f'Model {model_name} uploaded successfully!', 'success')
 
-    except mysql.connector.Error as err:
-        flash(f'Database error: {err}', 'danger')
-        # Cleanup failed upload
-        if 'filepath' in locals() and os.path.exists(filepath):
-            os.remove(filepath)
-        if connection:
-            connection.rollback()
-
     except Exception as e:
-        flash(f'Unexpected error: {str(e)}', 'danger')
-        # Cleanup failed upload
+        flash(f'Error: {str(e)}', 'danger')
         if 'filepath' in locals() and os.path.exists(filepath):
             os.remove(filepath)
         if connection:
             connection.rollback()
-
     finally:
-        if cursor:
-            cursor.close()
+        if cursor: cursor.close()
         if connection and connection.is_connected():
             connection.close()
 
     return redirect(url_for('admin_dashboard'))
 
-# ... [Keep all other routes (delete_model, delete_user, user_dashboard, etc.) unchanged] ...
 @app.route('/admin/delete_model/<int:model_id>')
 def delete_model(model_id):
     try:
         connection = create_connection()
         cursor = connection.cursor(dictionary=True)
         
-        # Get file path before deletion
         cursor.execute("SELECT model_path FROM models WHERE id = %s", (model_id,))
         model_path = cursor.fetchone()['model_path']
         
-        # Delete from database
         cursor.execute("DELETE FROM models WHERE id = %s", (model_id,))
         connection.commit()
         
-        # Delete physical file
         full_path = os.path.join(MODEL_BASE_DIR, model_path)
         if os.path.exists(full_path):
             os.remove(full_path)
@@ -354,11 +337,8 @@ def user_dashboard():
     if not session.get('logged_in'):
         return redirect(url_for('login'))
 
-    # Initialize all template variables with default values
     models = []
     history = []
-    original_image = None
-    result_image = None
     error = None
     connection = None
     cursor = None
@@ -367,7 +347,6 @@ def user_dashboard():
         connection = create_connection()
         cursor = connection.cursor(dictionary=True)
 
-        # Get available models
         cursor.execute("""
             SELECT id, model_name, model_type 
             FROM models 
@@ -376,7 +355,6 @@ def user_dashboard():
         """)
         models = cursor.fetchall()
 
-        # Process image upload if POST request
         if request.method == 'POST':
             if 'image' not in request.files:
                 raise ValueError("No file uploaded")
@@ -387,7 +365,6 @@ def user_dashboard():
             if not filename:
                 raise ValueError("Invalid file format")
 
-            # Get selected model or use latest segmentation model
             selected_model_id = request.form.get('model_id')
             if selected_model_id:
                 cursor.execute("""
@@ -408,33 +385,26 @@ def user_dashboard():
             if not model_data:
                 raise ValueError("No available models for processing")
 
-            # Process image with selected model
             model = get_model_from_db(model_data['id'])
             input_tensor = preprocess_image(os.path.join(app.config['UPLOAD_FOLDER'], filename))
             
             with torch.no_grad():
                 output = model(input_tensor)
 
-            # Save results based on model type
             result_filename = f"result_{filename}"
             save_path = os.path.join(app.config['UPLOAD_FOLDER'], result_filename)
             
             if model_data['model_type'] == 'segmentation':
                 save_segmentation_result(output, save_path)
             else:
-                save_classification_result(output, save_path)
+                raise NotImplementedError("Classification processing not implemented")
 
-            # Store processing history
             cursor.execute("""
                 INSERT INTO processing_history (user_id, original_image, result_image, model_id)
                 VALUES (%s, %s, %s, %s)
             """, (session['user_id'], filename, result_filename, model_data['id']))
             connection.commit()
 
-            original_image = filename
-            result_image = result_filename
-
-        # Always get processing history (for both GET and POST)
         cursor.execute("""
             SELECT ph.*, m.model_name 
             FROM processing_history ph
@@ -446,24 +416,158 @@ def user_dashboard():
         history = cursor.fetchall()
 
     except Exception as e:
-        if connection:
-            connection.rollback()
+        if connection: connection.rollback()
         error = str(e)
         if "not implemented" in error.lower():
             error = "Classification processing is not available yet"
         flash(error, 'danger')
     finally:
-        if cursor:
-            cursor.close()
-        if connection and connection.is_connected():
-            connection.close()
+        if cursor: cursor.close()
+        if connection: connection.close()
 
     return render_template('user/dashboard.html',
                          models=models,
                          history=history,
-                         original_image=original_image,
-                         result_image=result_image,
                          error=error)
+
+@app.route('/process-image', methods=['POST'])
+def process_image():
+    connection = None  # Add this
+    cursor = None    
+    try:
+        if 'image' not in request.files:
+            return jsonify({'error': 'No image uploaded'}), 400
+            
+        file = request.files['image']
+        model_id = request.form.get('model_id')
+        
+        if not model_id or not file:
+            return jsonify({'error': 'Missing required fields'}), 400
+
+        filename = save_uploaded_file(file)
+        if not filename:
+            return jsonify({'error': 'Invalid file format'}), 400
+        
+        if file.filename == '':
+            return jsonify({'error': 'Empty file submitted'}), 400
+
+        connection = create_connection()
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM models WHERE id = %s", (model_id,))
+        model_data = cursor.fetchone()
+        
+        if not model_data:
+            return jsonify({'error': 'Model not found'}), 404
+
+        model = get_model_from_db(model_data['id'])
+        model.eval()
+        
+        input_tensor = preprocess_image(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+        
+        #######
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+        
+        with torch.no_grad():
+            output = model(input_tensor)
+        
+        result_filename = f"result_{filename}"
+        save_path = os.path.join(app.config['UPLOAD_FOLDER'], result_filename)
+        
+        if model_data['model_type'] == 'segmentation':
+            save_segmentation_result(output, save_path)
+        else:
+            return jsonify({'error': 'Classification not implemented'}), 501
+
+        cursor.execute("""
+            INSERT INTO processing_history (user_id, original_image, result_image, model_id)
+            VALUES (%s, %s, %s, %s)
+        """, (session['user_id'], filename, result_filename, model_id))
+        connection.commit()
+
+        return jsonify({
+            'original': url_for('uploaded_file', filename=filename),
+            'processed': url_for('uploaded_file', filename=result_filename)
+        })
+
+    except Exception as e:
+        app.logger.error(f"Processing error: {str(e)}")
+        app.logger.error(traceback.format_exc())  
+        return jsonify({'error': str(e)}), 500
+    finally:
+        if cursor: cursor.close()
+        if connection and connection.is_connected(): 
+            connection.close()
+
+def get_model_from_db(model_id):
+    try:
+        connection = create_connection()
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute("SELECT model_path, model_format, model_type FROM models WHERE id = %s", (model_id,))
+        result = cursor.fetchone()
+        
+        if not result:
+            raise ValueError("Model not found")
+
+        full_path = os.path.join(MODEL_BASE_DIR, result['model_path'])
+
+        if result['model_format'] == 'torchscript':
+            return torch.jit.load(full_path)
+        else:
+            # Initialize model with correct architecture
+            if result['model_type'] == 'segmentation':
+                model = UNet()
+                # Handle state_dict loading with error details
+                state_dict = torch.load(full_path)
+                try:
+                    model.load_state_dict(state_dict)
+                except RuntimeError as e:
+                    print(f"Error loading state_dict: {str(e)}")
+                    print("Missing keys:", [k for k in state_dict.keys() if k not in model.state_dict()])
+                    print("Unexpected keys:", [k for k in model.state_dict() if k not in state_dict.keys()])
+                    raise
+            else:
+                raise ValueError("Unsupported model type")
+            
+            model.eval()
+            return model
+            
+    except Exception as e:
+        raise RuntimeError(f"Model loading failed: {str(e)}")
+    finally:
+        if cursor: cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+
+def save_uploaded_file(file):
+    if file.filename == '':
+        return None
+    filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{file.filename}"
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    file.save(filepath)
+    return filename
+
+def preprocess_image(image_path):
+    try:
+        img = Image.open(image_path).convert('RGB')
+        if img.mode != 'RGB':
+            raise ValueError("Invalid image mode")
+            
+        transform = torch.nn.Sequential(
+            torch.nn.Resize((256, 256)),
+            torch.nn.ToTensor()
+        )
+        return transform(img).unsqueeze(0)
+    except Exception as e:
+        raise ValueError(f"Image processing failed: {str(e)}")
+
+def save_segmentation_result(output, save_path):
+    output = output.squeeze().cpu().numpy()
+    output = (output * 255).astype('uint8')
+    Image.fromarray(output).save(save_path)
+
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 @app.route('/get-models')
 def get_models():
@@ -490,25 +594,7 @@ def get_models():
         cursor.close()
         connection.close()
 
-def preprocess_image(image_path):
-    image = Image.open(image_path).convert('RGB')
-    transform = torch.nn.Sequential(
-        torch.transforms.Resize((256, 256)),
-        torch.transforms.ToTensor()
-    )
-    return transform(image).unsqueeze(0)
-
-def save_segmentation_result(output, save_path):
-    output = output.squeeze().cpu().numpy()
-    output = (output * 255).astype('uint8')
-    Image.fromarray(output).save(save_path)
-
-@app.route('/uploads/<filename>')
-def uploaded_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
-
-
 if __name__ == '__main__':
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
-    app.run(debug=True)
+    app.run(debug=False)
