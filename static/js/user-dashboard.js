@@ -120,7 +120,7 @@ async function processImage() {
         }
 
         const result = await response.json();
-        
+        console.log('Server Response:', result);
         if (result.error) {
             throw new Error(result.error);
         }

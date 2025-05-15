@@ -2,6 +2,7 @@
 *.pth
 *.pt
 *.pt5
-
+*.sql
 # Ignore folders
 uploads/
+DRIVE_dataset/

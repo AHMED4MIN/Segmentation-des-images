@@ -43,16 +43,6 @@ def initialize_database():
         )
     """)
     
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS processing_history (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            user_id INT NOT NULL,
-            original_image VARCHAR(255) NOT NULL,
-            result_image VARCHAR(255) NOT NULL,
-            processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id)
-        )
-    """)
     
     connection.commit()
     cursor.close()
