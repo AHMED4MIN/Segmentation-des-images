@@ -9,6 +9,7 @@ import os
 from datetime import datetime
 from PIL import Image
 import traceback
+import cv2
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
@@ -64,7 +65,6 @@ class UNet(nn.Module):
         x = torch.cat([x, conv1], dim=1)
         
         return torch.sigmoid(self.conv_last(x))
-
 
 class DoubleConv(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -177,6 +177,56 @@ class ASE_Res_UNet(nn.Module):
         x = self.up0(x, x1)
         
         return torch.sigmoid(self.outc(x))
+
+class RobustAdaptiveUNet(nn.Module):
+    def __init__(self, encoder_channels=None, decoder_channels=None, in_channels=3, out_channels=1):
+        super().__init__()
+
+        # Default channel structure if not inferred
+        self.encoder_channels = encoder_channels or [64, 128, 256, 512]
+        self.decoder_channels = decoder_channels or list(reversed(self.encoder_channels))
+
+        # Initial conv
+        self.inc = DoubleConv(in_channels, self.encoder_channels[0])
+
+        # Down path
+        self.downs = nn.ModuleList()
+        for i in range(len(self.encoder_channels) - 1):
+            self.downs.append(nn.Sequential(
+                nn.MaxPool2d(2),
+                DoubleConv(self.encoder_channels[i], self.encoder_channels[i + 1])
+            ))
+
+        # Up path
+        self.ups = nn.ModuleList()
+        self.up_convs = nn.ModuleList()
+        for i in range(len(self.decoder_channels) - 1):
+            self.ups.append(nn.ConvTranspose2d(self.decoder_channels[i], self.decoder_channels[i + 1], kernel_size=2, stride=2))
+            self.up_convs.append(DoubleConv(self.decoder_channels[i + 1] + self.encoder_channels[-(i + 2)], self.decoder_channels[i + 1]))
+
+        # Final conv
+        self.outc = nn.Conv2d(self.decoder_channels[-1], out_channels, kernel_size=1)
+
+    def forward(self, x):
+        features = [self.inc(x)]
+        for down in self.downs:
+            features.append(down(features[-1]))
+
+        x = features[-1]
+
+        for i in range(len(self.ups)):
+            x = self.ups[i](x)
+
+            # Resize if necessary (handle mismatched feature map sizes)
+            skip = features[-(i + 2)]
+            if x.shape[2:] != skip.shape[2:]:
+                x = F.interpolate(x, size=skip.shape[2:], mode='bilinear', align_corners=True)
+
+            x = torch.cat([x, skip], dim=1)
+            x = self.up_convs[i](x)
+
+        return torch.sigmoid(self.outc(x))
+
 
 @app.before_request
 def require_login():
@@ -531,9 +581,10 @@ def user_dashboard():
                          models=models,
                          error=error)
 
+
 @app.route('/process-image', methods=['POST'])
 def process_image():
-    connection = None  # Add this
+    connection = None
     cursor = None    
     try:
         if 'image' not in request.files:
@@ -560,114 +611,361 @@ def process_image():
         if not model_data:
             return jsonify({'error': 'Model not found'}), 404
 
+        # Load the model with improved loading logic
         model = get_model_from_db(model_data['id'])
         model.eval()
         
+        # Preprocess image and prepare for model
         input_tensor = preprocess_image(os.path.join(app.config['UPLOAD_FOLDER'], filename))
         
-        #######
-        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+        # Free GPU memory if using CUDA
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         
-        with torch.no_grad():
-            output = model(input_tensor)
-        
+        # Process image with model
+        try:
+            with torch.no_grad():
+                output = model(input_tensor)
+                
+                # Log output information for debugging
+                if isinstance(output, dict):
+                    app.logger.info(f"Model returned dictionary with keys: {output.keys()}")
+                    if 'out' in output:
+                        output_tensor = output['out']
+                    else:
+                        output_tensor = list(output.values())[0]  # Take first value
+                else:
+                    output_tensor = output
+                
+                app.logger.info(f"Output shape: {output_tensor.shape}")
+                app.logger.info(f"Output min: {output_tensor.min().item()}, max: {output_tensor.max().item()}, mean: {output_tensor.mean().item()}")
+        except RuntimeError as e:
+            if 'CUDA out of memory' in str(e):
+                # Fallback to CPU if CUDA OOM
+                torch.cuda.empty_cache()
+                device = torch.device('cpu')
+                model = model.to(device)
+                input_tensor = input_tensor.to(device)
+                
+                with torch.no_grad():
+                    output = model(input_tensor)
+            else:
+                raise e
+
+        # Save results
         result_filename = f"result_{filename}"
         save_path = os.path.join(app.config['UPLOAD_FOLDER'], result_filename)
         
+        # Save result based on model type
         if model_data['model_type'] == 'segmentation':
             save_segmentation_result(output, save_path)
         else:
             return jsonify({'error': 'Classification not implemented'}), 501
 
-        connection.commit()
+        # Create overlay version for better visualization
+        overlay_filename = f"overlay_{filename}"
+        try:
+            # Load original and mask
+            original = cv2.imread(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+            mask = cv2.imread(save_path)
+            
+            # Resize if needed
+            if original.shape[:2] != mask.shape[:2]:
+                mask = cv2.resize(mask, (original.shape[1], original.shape[0]))
+            
+            # Create overlay
+            alpha = 0.6
+            overlay = cv2.addWeighted(original, 1-alpha, mask, alpha, 0)
+            
+            # Save overlay
+            overlay_path = os.path.join(app.config['UPLOAD_FOLDER'], overlay_filename)
+            cv2.imwrite(overlay_path, overlay)
+        except Exception as overlay_error:
+            app.logger.warning(f"Could not create overlay: {str(overlay_error)}")
+            overlay_filename = None
 
-        return jsonify({
+        # Log the processing in the database
+        try:
+            cursor.execute("""
+                INSERT INTO user_history (user_id, model_id, image_path, result_path)
+                VALUES (%s, %s, %s, %s)
+            """, (session.get('user_id'), model_id, filename, result_filename))
+            connection.commit()
+        except Exception as db_error:
+            app.logger.warning(f"Could not log to history: {str(db_error)}")
+
+        # Return paths to the processed images
+        response = {
             'original': url_for('uploaded_file', filename=filename),
             'processed': url_for('uploaded_file', filename=result_filename)
-        })
+        }
+        
+        # Add overlay if available
+        if overlay_filename:
+            response['overlay'] = url_for('uploaded_file', filename=overlay_filename)
+
+        return jsonify(response)
 
     except Exception as e:
         app.logger.error(f"Processing error: {str(e)}")
         app.logger.error(traceback.format_exc())  
+        if connection: connection.rollback()
         return jsonify({'error': str(e)}), 500
     finally:
         if cursor: cursor.close()
         if connection and connection.is_connected(): 
             connection.close()
 
-
-
 def get_model_from_db(model_id):
+    """
+    Load model from database with improved architecture detection and error handling
+    """
     try:
         connection = create_connection()
         cursor = connection.cursor(dictionary=True)
         cursor.execute("SELECT model_path, model_format, model_type FROM models WHERE id = %s", (model_id,))
         result = cursor.fetchone()
-        
         if not result:
             raise ValueError("Model not found")
 
         full_path = os.path.join(MODEL_BASE_DIR, result['model_path'])
+        print(f"Loading model from: {full_path}")
 
-        if result['model_format'] == 'torchscript':
-            return torch.jit.load(full_path, map_location=torch.device('cpu'))
-        else:
-            # Load the state dictionary first to inspect
+        # Check file exists
+        if not os.path.exists(full_path):
+            raise FileNotFoundError(f"Model file not found at {full_path}")
+
+        # Load the state dict or model
+        try:
             state_dict = torch.load(full_path, map_location='cpu')
+            print(f"Successfully loaded state_dict with {len(state_dict)} keys")
+        except Exception as e:
+            print(f"Error loading model: {str(e)}")
+            raise
+
+        # Check if it's a complete model or state_dict
+        if isinstance(state_dict, nn.Module):
+            print("✅ Loaded complete model")
+            return state_dict
+
+        # Extract model architecture info from state_dict
+        architecture_type = detect_architecture_from_state_dict(state_dict)
+        print(f"Detected architecture: {architecture_type}")
+
+        if architecture_type == "deeplabv3":
+            from torchvision.models.segmentation import deeplabv3_resnet101
+    
+            # Try to infer the number of classes
+            num_classes = 1
+            for key, value in state_dict.items():
+                if 'classifier.4.weight' in key:
+                    num_classes = value.shape[0]
+                    print(f"✅ Inferred num_classes: {num_classes}")
+                    break
+
+            model = deeplabv3_resnet101(weights=None, num_classes=num_classes)
+            strict = False
+
+
+        elif architecture_type == "ASE_Res_UNet":
+            model = ASE_Res_UNet()
+            strict = True
+        elif architecture_type == "UNet":
+            model = UNet()
+            strict = True
+        else:
+            print("⚠ Using RobustAdaptiveUNet for unknown architecture")
+            model = create_robust_adaptive_unet_from_state_dict(state_dict)
+            strict = False
+
+        # Try to load with adjusted keys if needed
+        try:
+            incompatible = model.load_state_dict(state_dict, strict=strict)
+            print(f"Model loaded with {'no' if not incompatible else 'some'} incompatible keys")
+            if not strict and incompatible:
+                print(f"Missing keys: {len(incompatible.missing_keys)}, Unexpected keys: {len(incompatible.unexpected_keys)}")
+        except Exception as e:
+            print(f"Error during state_dict loading: {str(e)}")
+            print("🔄 Trying adjusted key mapping...")
             
-            # Try multiple model architectures to find one that matches
-            if result['model_type'] == 'segmentation':
-                # Try the safe fallback UNet first - guaranteed to work for any input
-                try:
-                    model = create_super_safe_unet()
-                    app.logger.info("Using guaranteed compatible UNet architecture")
-                    model.eval()
-                    return model
-                except Exception as e0:
-                    app.logger.info(f"Even safe UNet failed: {str(e0)}")
-            
-                # Try the enhanced adaptive UNet 
-                try:
-                    model = create_adaptive_unet(state_dict)
-                    app.logger.info("Successfully loaded model with adaptive UNet architecture")
-                    model.eval()
-                    return model
-                except Exception as e1:
-                    app.logger.info(f"Adaptive UNet loading failed: {str(e1)}")
-                
-                # Try the simple UNet 
-                try:
-                    model = UNet()
-                    model.load_state_dict(state_dict)
-                    app.logger.info("Successfully loaded model with UNet architecture")
-                    model.eval()
-                    return model
-                except Exception as e2:
-                    app.logger.info(f"UNet loading failed: {str(e2)}")
-                
-                # Try the ASE_Res_UNet
-                try:
-                    model = ASE_Res_UNet()
-                    model.load_state_dict(state_dict)
-                    app.logger.info("Successfully loaded model with ASE_Res_UNet architecture")
-                    model.eval()
-                    return model
-                except Exception as e3:
-                    app.logger.info(f"ASE_Res_UNet loading failed: {str(e3)}")
-                
-                # Last resort: create a bare minimum model that can process images
-                app.logger.warning("Using basic model as fallback. This may reduce accuracy.")
-                return create_simple_unet()
-            else:
-                raise ValueError("Unsupported model type")
-            
+            # Try with adjusted keys
+            mapped_state_dict = map_state_dict_keys(state_dict, model)
+            incompatible = model.load_state_dict(mapped_state_dict, strict=False)
+            print(f"Model loaded with adjusted keys. Missing: {len(incompatible.missing_keys)}, Unexpected: {len(incompatible.unexpected_keys)}")
+
+        model.eval()
+        return model
+
     except Exception as e:
-        raise RuntimeError(f"Model loading failed: {str(e)}")
+        print(f"❌ Model loading failed: {str(e)}")
+        print(traceback.format_exc())
+        print("⚠ Falling back to SuperSafeUNet")
+        return create_super_safe_unet()
     finally:
         if cursor: cursor.close()
         if connection and connection.is_connected():
             connection.close()
 
+def detect_architecture_from_state_dict(state_dict):
+    """
+    Analyze state_dict keys to determine the most likely architecture
+    """
+    keys = list(state_dict.keys())
+    
+    # DeepLabV3 detection
+    if any('classifier.4' in k for k in keys) or any('classifier.0' in k for k in keys):
+        return "deeplabv3"
+    
+    # ASE_Res_UNet detection - has attention blocks
+    if any('attention' in k for k in keys):
+        return "ASE_Res_UNet"
+    
+    # Basic UNet detection
+    if any('up' in k and 'conv' in k for k in keys) or any('down' in k for k in keys):
+        return "UNet"
+    
+    # Default unknown
+    return "unknown"
+
+def create_adaptive_unet():
+    """
+    Create a flexible UNet model that can adapt to different architectures
+    """
+    class AdaptiveUNet(nn.Module):
+        def __init__(self, in_channels=3, out_channels=1):
+            super().__init__()
+            
+            # Encoder path with different channel sizes
+            self.inc = DoubleConv(in_channels, 64)
+            
+            self.down1 = nn.Sequential(
+                nn.MaxPool2d(2),
+                DoubleConv(64, 128)
+            )
+            
+            self.down2 = nn.Sequential(
+                nn.MaxPool2d(2),
+                DoubleConv(128, 256)
+            )
+            
+            self.down3 = nn.Sequential(
+                nn.MaxPool2d(2),
+                DoubleConv(256, 512)
+            )
+            
+            # Decoder path
+            self.up3 = nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2)
+            self.conv_up3 = DoubleConv(512, 256)  # 512 = 256 + 256 (skip connection)
+            
+            self.up2 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)
+            self.conv_up2 = DoubleConv(256, 128)  # 256 = 128 + 128 (skip connection)
+            
+            self.up1 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
+            self.conv_up1 = DoubleConv(128, 64)  # 128 = 64 + 64 (skip connection)
+            
+            # Final layer
+            self.outc = nn.Conv2d(64, out_channels, 1)
+
+        def forward(self, x):
+            # Encoder
+            x1 = self.inc(x)
+            x2 = self.down1(x1)
+            x3 = self.down2(x2)
+            x4 = self.down3(x3)
+            
+            # Decoder with skip connections
+            x = self.up3(x4)
+            # Handle different sizes for skip connections
+            if x.shape[2:] != x3.shape[2:]:
+                x = F.interpolate(x, size=x3.shape[2:], mode='bilinear', align_corners=True)
+            x = torch.cat([x3, x], dim=1)
+            x = self.conv_up3(x)
+            
+            x = self.up2(x)
+            if x.shape[2:] != x2.shape[2:]:
+                x = F.interpolate(x, size=x2.shape[2:], mode='bilinear', align_corners=True)
+            x = torch.cat([x2, x], dim=1)
+            x = self.conv_up2(x)
+            
+            x = self.up1(x)
+            if x.shape[2:] != x1.shape[2:]:
+                x = F.interpolate(x, size=x1.shape[2:], mode='bilinear', align_corners=True)
+            x = torch.cat([x1, x], dim=1)
+            x = self.conv_up1(x)
+            
+            return torch.sigmoid(self.outc(x))
+    
+    return AdaptiveUNet()
+
+def map_state_dict_keys(state_dict, model):
+    """
+    Attempt to map keys from state_dict to the target model structure
+    """
+    new_state_dict = {}
+    model_keys = dict(model.named_parameters())
+    
+    # Common patterns to try mapping
+    for old_key, value in state_dict.items():
+        # Try direct match first
+        if old_key in model_keys:
+            new_state_dict[old_key] = value
+            continue
+        
+        # Try to handle different encoder naming
+        if old_key.startswith('inc.') and 'inc.' in str(model_keys):
+            new_key = old_key
+            new_state_dict[new_key] = value
+        elif old_key.startswith('down1.'):
+            if 'down1.' in str(model_keys):
+                new_key = old_key
+            else:
+                new_key = old_key.replace('down1.', 'down1.1.')
+            new_state_dict[new_key] = value
+        elif old_key.startswith('down2.'):
+            if 'down2.' in str(model_keys):
+                new_key = old_key
+            else:
+                new_key = old_key.replace('down2.', 'down2.1.')
+            new_state_dict[new_key] = value
+        elif old_key.startswith('down3.'):
+            if 'down3.' in str(model_keys):
+                new_key = old_key
+            else:
+                new_key = old_key.replace('down3.', 'down3.1.')
+            new_state_dict[new_key] = value
+        
+        # Try to handle different decoder naming
+        elif old_key.startswith('up1.'):
+            if old_key.startswith('up1.up.'):
+                new_key = old_key.replace('up1.up.', 'up1.')
+            elif old_key.startswith('up1.conv.'):
+                new_key = old_key.replace('up1.conv.', 'conv_up1.')
+            else:
+                new_key = old_key
+            new_state_dict[new_key] = value
+        elif old_key.startswith('up2.'):
+            if old_key.startswith('up2.up.'):
+                new_key = old_key.replace('up2.up.', 'up2.')
+            elif old_key.startswith('up2.conv.'):
+                new_key = old_key.replace('up2.conv.', 'conv_up2.')
+            else:
+                new_key = old_key
+            new_state_dict[new_key] = value
+        elif old_key.startswith('up3.'):
+            if old_key.startswith('up3.up.'):
+                new_key = old_key.replace('up3.up.', 'up3.')
+            elif old_key.startswith('up3.conv.'):
+                new_key = old_key.replace('up3.conv.', 'conv_up3.')
+            else:
+                new_key = old_key
+            new_state_dict[new_key] = value
+        elif old_key.startswith('outc.'):
+            new_state_dict[old_key] = value
+        else:
+            # Add without modification as fallback
+            new_state_dict[old_key] = value
+    
+    return new_state_dict
 
 def create_super_safe_unet():
     """Create an extremely simple and safe UNet model that is guaranteed to work with any input"""
@@ -1147,6 +1445,25 @@ def create_legacy_ase_res_unet():
             
     return LegacyASE_Res_UNet()
 
+def create_robust_adaptive_unet_from_state_dict(state_dict, in_channels=3, out_channels=1):
+    """
+    Build a RobustAdaptiveUNet based on the encoder conv weights in the state_dict
+    """
+    encoder_channels = []
+    for k, v in state_dict.items():
+        if 'conv' in k and 'weight' in k and len(v.shape) == 4:
+            out_ch = v.shape[0]
+            if out_ch not in encoder_channels:
+                encoder_channels.append(out_ch)
+            if len(encoder_channels) >= 4:
+                break
+
+    if not encoder_channels:
+        encoder_channels = [64, 128, 256, 512]
+
+    decoder_channels = list(reversed(encoder_channels))
+    return RobustAdaptiveUNet(encoder_channels, decoder_channels, in_channels, out_channels)
+
 
 def save_uploaded_file(file):
     if file.filename == '':
@@ -1179,10 +1496,149 @@ def preprocess_image(image_path):
         app.logger.error(traceback.format_exc())
         raise ValueError(f"Image processing failed: {str(e)}")
 
+
 def save_segmentation_result(output, save_path):
-    output = output.squeeze().cpu().numpy()
-    output = (output * 255).astype('uint8')
-    Image.fromarray(output).save(save_path)
+    """
+    Process model output and save segmentation result with improved visualization
+    """
+    import numpy as np
+    import cv2
+    from PIL import Image
+    import os
+
+    try:
+        # Load original image to get size
+        original_path = save_path.replace('result_', '')
+        if not os.path.exists(original_path):
+            print(f"[WARNING] Original image not found at {original_path}")
+            # Use output size if original not available
+            width, height = output.shape[-1], output.shape[-2]
+        else:
+            original_img = Image.open(original_path).convert('RGB')
+            width, height = original_img.size
+
+        # Process output tensor
+        # Handle DeepLabV3-style output
+        if isinstance(output, dict) and 'out' in output:
+            output = output['out']
+
+        output = output.detach().cpu()
+
+        print(f"[INFO] Raw model output shape: {output.shape}, min: {output.min().item()}, max: {output.max().item()}")
+
+        # Handle DeepLabV3 format where output is in a dictionary
+        if isinstance(output, dict) and 'out' in output:
+            output = output['out']
+
+        # Handle different output structures
+        if output.dim() == 4:  # [B, C, H, W]
+            if output.shape[1] > 1:  # Multi-class segmentation
+                output = output.squeeze(0)  # Remove batch dimension
+                output = torch.argmax(output, dim=0)  # Get class indices
+            else:  # Binary segmentation
+                output = output.squeeze(0).squeeze(0)  # Remove extra dimensions
+        elif output.dim() == 3 and output.shape[0] > 1:  # [C, H, W]
+            output = torch.argmax(output, dim=0)  # Get class indices
+        elif output.dim() == 3 and output.shape[0] == 1:  # [1, H, W]
+            output = output.squeeze(0)  # Remove channel dimension
+
+        # Convert to numpy
+        output_np = output.numpy()
+        
+        # Diagnostic info
+        print(f"[INFO] Processed output shape: {output_np.shape}")
+        print(f"[INFO] Output range: min={output_np.min()}, max={output_np.max()}")
+        print(f"[INFO] Unique values: {np.unique(output_np)}")
+
+        # Resize to original image dimensions
+        output_resized = cv2.resize(output_np, (width, height), 
+                                   interpolation=cv2.INTER_NEAREST)
+
+        # Create colored output for better visualization
+        if output_resized.max() <= 1.0 and output_resized.dtype != np.uint8:
+            # Likely probabilities - convert to binary
+            binary_mask = (output_resized > 0.5).astype(np.uint8) * 255
+            
+            # Create a colored overlay
+            colored_mask = np.zeros((height, width, 3), dtype=np.uint8)
+            colored_mask[..., 0] = binary_mask  # Blue channel
+            colored_mask[..., 1] = 0  # Green channel
+            colored_mask[..., 2] = binary_mask  # Red channel
+            
+            # Save both binary and colored versions
+            Image.fromarray(binary_mask).save(save_path.replace('.', '_binary.'))
+            Image.fromarray(colored_mask).save(save_path)
+            print("[INFO] Saved binary and colored masks")
+        else:
+            # Handle multi-class segmentation
+            # Define a colormap (up to 20 classes)
+            colormap = np.array([
+                [0, 0, 0],        # Class 0 - Background (black)
+                [255, 0, 0],      # Class 1 - Red
+                [0, 255, 0],      # Class 2 - Green
+                [0, 0, 255],      # Class 3 - Blue
+                [255, 255, 0],    # Class 4 - Yellow
+                [255, 0, 255],    # Class 5 - Magenta
+                [0, 255, 255],    # Class 6 - Cyan
+                [128, 0, 0],      # Class 7 - Dark red
+                [0, 128, 0],      # Class 8 - Dark green
+                [0, 0, 128],      # Class 9 - Dark blue
+                [128, 128, 0],    # Class 10 - Olive
+                [128, 0, 128],    # Class 11 - Purple
+                [0, 128, 128],    # Class 12 - Teal
+                [128, 128, 128],  # Class 13 - Gray
+                [64, 0, 0],       # Class 14 - Maroon
+                [192, 0, 0],      # Class 15 - Crimson
+                [64, 128, 0],     # Class 16 - Forest green
+                [192, 128, 0],    # Class 17 - Orange
+                [64, 0, 128],     # Class 18 - Indigo
+                [192, 0, 128],    # Class 19 - Pink
+            ], dtype=np.uint8)
+
+            # Ensure colormap has enough colors
+            max_class = int(np.ceil(output_resized.max()))
+            if max_class >= len(colormap):
+                more_colors = np.random.randint(0, 255, size=(max_class + 1 - len(colormap), 3), dtype=np.uint8)
+                colormap = np.vstack([colormap, more_colors])
+
+            # Create color-coded segmentation mask
+            output_resized = output_resized.astype(np.int32)
+            color_mask = colormap[output_resized]
+            
+            # If original image exists, create overlay
+            if os.path.exists(original_path):
+                try:
+                    # Read original image
+                    original = cv2.imread(original_path)
+                    original = cv2.resize(original, (width, height))
+                    
+                    # Create a 50% blend of original and mask
+                    alpha = 0.7  # Transparency factor
+                    overlay = cv2.addWeighted(original, 1-alpha, color_mask, alpha, 0)
+                    
+                    # Save the overlay version
+                    cv2.imwrite(save_path.replace('.', '_overlay.'), overlay)
+                    print("[INFO] Saved segmentation overlay")
+                except Exception as overlay_error:
+                    print(f"[WARNING] Overlay creation failed: {str(overlay_error)}")
+
+            # Save color-coded segmentation mask
+            Image.fromarray(color_mask).save(save_path)
+            print("[INFO] Saved color-coded segmentation mask")
+
+    except Exception as e:
+        print(f"[ERROR] Saving segmentation result failed: {str(e)}")
+        print(traceback.format_exc())
+        
+        # Create a simple fallback image in case of errors
+        try:
+            fallback_img = np.zeros((256, 256, 3), dtype=np.uint8)
+            cv2.putText(fallback_img, "Error processing", (20, 128), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
+            cv2.imwrite(save_path, fallback_img)
+        except:
+            pass
+
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
