@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SegmentAI</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css') }}">
+  <script src="{{ url_for('static', filename='js/home.js') }}" defer></script>
   <link href="https://fonts.googleapis.com/css2?family=Jura:wght@400;600&display=swap" rel="stylesheet">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,6 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 </head>
 <body>
   <header>
@@ -21,8 +23,8 @@
       </div>
       <ul class="nav-links">
         <li><a href="#">Page d'Accueil</a></li>
-        <li><a href="#">Introduction à la segmentation</a></li>
-        <li><a href="#">Fonctionnalités</a></li>
+        <li><a href="#">Comment SegmentAi </a></li>
+        <li><a href="#">Pour quoi SegmentAi </a></li>
         <li><a href="#">Contactez Nous</a></li>
       </ul>
       <div class="nav-button">
@@ -34,8 +36,8 @@
 
   <section class="hero">
     <div class="hero-content">
-      <h1>Transformez vos images avec une<br>segmentation intelligente</h1>
-      <p>Découvrez notre outil de segmentation d'images qui vous permet de séparer facilement les objets et les régions. Téléchargez vos images et laissez notre technologie avancée faire le reste.</p>
+      <h1>Transformez vos <br> images avec une <br> segmentation <br> intelligente</h1>
+      <p>Découvrez notre outil de segmentation d'images qui vous permet <br> de séparer facilement les objets et les régions. Téléchargez vos <br> images et laissez notre technologie avancée faire le reste.</p>
       <div class="hero-buttons">
         <a href="{{ url_for('login') }}" class="btn-commencer">Commencer</a>
         <a href="#" class="btn-en-savoir-plus">En savoir plus</a>
@@ -43,5 +45,151 @@
     </div>
   </section>
 
+
+  <section class="galaxy-works-section">
+  <div class="container">
+    <h2 class="section-title">Comment <span class="highlight">SegmentAI</span> fonctionne</h2>
+    <div class="steps">
+      <div class="step">
+        <img src="{{ url_for('static', filename='assets/vision.gif') }}" alt="Capture images icon" class="step-icon" />
+        <h3>Upload des images</h3>
+        <p>Importez facilement vos images de rétine en un seul clic depuis votre appareil.</p>
+      </div>
+      <div class="step">
+        <img src="{{ url_for('static', filename='assets/view.gif') }}" alt="Analyzes images icon" class="step-icon" />
+        <h3>Analyse des images</h3>
+        <p>SegmentAi identifie les anomalies rétiniennes en moins de 10 secondes grâce à l’IA.</p>
+      </div>
+      <div class="step">
+        <img src="{{ url_for('static', filename='assets/chart.gif') }}" alt="Diagnostic report icon" class="step-icon" />
+        <h3>Rapport de diagnostic</h3>
+        <p> Indique si la rétine présente des signes de maladie ou non.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<section class="retina-ai-section">
+  <div class="container">
+    <h2>Public cible</h2>
+    
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="pcps">Médecins praticiens</button>
+      <button class="tab-btn" data-tab="insurers">Cliniques médicales</button>
+      <button class="tab-btn" data-tab="patients">Étudiants</button>
+    </div>
+    
+    <div class="tab-content active" id="pcps-content">
+      <div class="content-wrapper">
+        <div class="text-content">
+          <h3>Ophtalmologistes, médecins de famille :</h3>  <p>Profitez d’un outil fiable pour confirmer ou affiner vos diagnostics.
+            Gagnez en précision clinique et améliorez la prise en charge de vos patients en toute confiance.
+          </p>
+           <br><br>
+          <button class="cta-btn">Je suis intéressé(e)</button>
+        </div>
+        <div class="image-content">
+          <img src="{{ url_for('static', filename='assets/Physicians2.jpeg') }}" alt="PCPs benefits">
+        </div>
+      </div>
+    </div>
+    
+    <div class="tab-content" id="insurers-content">
+      <div class="content-wrapper">
+        <div class="text-content">
+          <h3>Saisissez l’opportunité :</h3>
+          <ul>
+            <li><input type="checkbox" disabled>de contrôler la qualité des services médicaux.</li>
+            <li><input type="checkbox" checked disabled>de réduire le temps consacré par le personnel à l’examen des patients.</li>
+            <li><input type="checkbox" checked disabled>d’impliquer les patients atteints de maladies chroniques nécessitant un suivi régulier.</li>
+          </ul>
+          <button class="cta-btn">Je suis intéressé(e)</button>
+        </div>
+        <div class="image-content">
+          <img src="{{ url_for('static', filename='assets/clinics.jpeg') }}" alt="Insurers benefits">
+        </div>
+      </div>
+    </div>
+    
+    <div class="tab-content" id="patients-content">
+      <div class="content-wrapper">
+        <div class="text-content">
+          <p>
+            <h3>Étudiants en médecine et internes :</h3>  Testez et améliorez vos compétences dans le diagnostic des pathologies rétiniennes. <br>
+            Accédez à des cas concrets pour renforcer vos connaissances et affiner votre expertise en ophtalmologie.
+          </p>
+          <br><br>
+          <button class="cta-btn">Je suis intéressé(e)</button>
+        </div>
+        <div class="image-content">
+          <img src="{{ url_for('static', filename='assets/students.jpeg') }}" alt="Patient benefits">
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<section class="contact-section">
+  <div class="contact-container">
+    <h2 class="section-title">Contactez-nous</h2>
+    <div class="contact-content">
+      
+      <!-- Left: Contact Info -->
+      <div class="contact-info">
+        <div class="about-us">
+          <h3>À propos de nous</h3>
+          <p>SegmentAI est une plateforme d’IA qui permet de segmenter et classifier 
+            les images de la rétine pour détecter automatiquement la présence de maladies oculaires.
+            Elle offre un outil rapide, intuitif et fiable pour assister les professionnels de santé 
+            dans leurs diagnostics. </p>
+        </div>
+        <p><i class="fas fa-map-marker-alt"></i> Campus  Mghilla,  BP 523 <br> Béni Mellal 23000</p>
+        <p><i class="fas fa-phone"></i> +212 600000000</p>
+        <p><i class="fas fa-envelope"></i> contact@segmentai.com</p> 
+        <div class="social-icons">
+          <a href="#"><i class="fab fa-facebook-f"></i></a>
+          <a href="#"><i class="fab fa-twitter"></i></a>
+          <a href="#"><i class="fab fa-linkedin-in"></i></a>
+          <a href="#"><i class="fas fa-cog"></i></a>
+        </div>
+      </div>
+
+      <!-- Right: Contact Form -->
+      <div class="contact-form">
+        <form>
+          <input type="text" placeholder="Nom" required>
+          <input type="email" placeholder="Email" required>
+          <textarea placeholder="Écrivez votre message ici" rows="5" required></textarea>
+          <button type="submit">Envoyer</button>
+        </form>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const tabBtns = document.querySelectorAll('.tab-btn');
+    
+    tabBtns.forEach(btn => {
+      btn.addEventListener('click', function() {
+        // Remove active class from all buttons and content
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        
+        // Add active class to clicked button
+        this.classList.add('active');
+        
+        // Show corresponding content
+        const tabId = this.getAttribute('data-tab') + '-content';
+        document.getElementById(tabId).classList.add('active');
+      });
+    });
+  });
+</script>
 </body>
 </html>

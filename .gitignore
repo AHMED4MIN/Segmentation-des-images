@@ -6,3 +6,6 @@
 # Ignore folders
 uploads/
 DRIVE_dataset/
+model_utils/
+images/
+

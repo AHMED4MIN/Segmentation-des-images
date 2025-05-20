@@ -20,16 +20,26 @@ header {
 }
 
 .navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
   height: 60px;
   background-color: transparent;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 10px;
+  padding: 0 0px;
+  transition: top 0.3s;
+  z-index: 1000;
+}
+
+.navbar-visible {
+  background-color: rgba(0, 0, 0, 0.8); 
 }
 
 .logo img {
-  height: 300px;
+  height: 250px;
   width: auto;
   margin-top: 35px;
 }
@@ -44,7 +54,7 @@ header {
   text-decoration: none;
   color: white;
   font-weight: 500;
-  font-size: 18px;
+  font-size: 14px;
 
 }
 
@@ -57,7 +67,7 @@ header {
 }
 
 .nav-button .btn-essayer {
-  padding: 10px 25px;
+  padding: 6px 18px;
   background-color: #00c17c;
   color: white;
   text-decoration: none;
@@ -72,7 +82,7 @@ header {
 }
 
 .hero {
-  background: url('../assets/home.jpg') no-repeat center center/cover;
+  background: url('../assets/home2.png') no-repeat center center/cover;
   height: 100vh;
   position: relative;
   display: flex;
@@ -89,14 +99,14 @@ header {
 }
 
 .hero-content h1 {
-  font-size: 48px;
+  font-size: 35px;
   font-weight: 700;
   margin-bottom: 20px;
   line-height: 1.2;
 }
 
 .hero-content p {
-  font-size: 18px;
+  font-size: 12px;
   font-weight: 300;
   margin-bottom: 30px;
   line-height: 1.5;
@@ -109,10 +119,10 @@ header {
 
 .hero-buttons .btn-commencer,
 .hero-buttons .btn-en-savoir-plus {
-  padding: 12px 25px;
+  padding: 10px 23px;
   border: none;
   text-decoration: none;
-  font-size: 16px;
+  font-size: 14px;
   border-radius: 30px;
   font-weight: 600;
   transition: all 0.3s ease;
@@ -137,5 +147,315 @@ header {
   background-color: white;
   color: #027A71;
 }
+/*  */
+/*  */
+/*  */
+.galaxy-works-section {
+  height: 100vh; /* Full viewport height */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #fff;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.galaxy-works-section .container {
+  max-width: 1200px;
+  width: 100%;
+}
+
+.galaxy-works-section .section-title {
+  font-size: 36px;
+  font-weight: bold;
+  margin-bottom: 80px;
+  color: #1d2b59;
+}
+
+.galaxy-works-section .highlight {
+  color: #f7634d;
+}
+
+.steps {
+  display: flex;
+  justify-content: space-around;
+  flex-wrap: wrap;
+  gap: 40px;
+}
+
+.step-icon {
+  width: 90px;         /* Increased from 60px */
+  height: auto;
+  margin-bottom: 25px;
+}
+
+.step h3 {
+  font-size: 26px;     /* Increased from 20px */
+  color: #1d2b59;
+  margin-bottom: 15px;
+}
+
+.step p {
+  font-size: 17px;     /* Increased from 14px */
+  color: #555;
+  line-height: 1.9;    /* More line spacing for readability */
+  max-width: 320px;
+  margin: 0 auto;
+}
+
+.step {
+  flex: 1;
+  min-width: 300px;     /* Slightly increased for more space */
+  max-width: 370px;
+  padding: 35px;        /* More padding inside each step */
+}
+
+.steps {
+  gap: 60px;            /* Increased spacing between cards */
+}
+
+/*  */
+/*  */
+/*  */
+.retina-ai-section {
+    width: 100%;
+    padding: 80px 0;
+    background-color: white;
+  }
+  
+  .retina-ai-section .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px;
+  }
+  
+  .retina-ai-section h2 {
+    font-size: 2.5rem;
+    text-align: center;
+    margin-bottom: 40px;
+    color: #1d2b59;
+  }
+  
+  .tabs {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 30px;
+    flex-wrap: wrap;
+  }
+  
+  .tab-btn {
+    padding: 12px 24px;
+    margin: 0 10px;
+    font-size: 1.1rem;
+    background: none;
+    border: none;
+    border-bottom: 3px solid transparent;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    color: #7f8c8d;
+  }
+  
+  .tab-btn:hover {
+    color: #3498db;
+  }
+  
+  .tab-btn.active {
+    color: #3498db;
+    border-bottom: 3px solid #3498db;
+    font-weight: bold;
+  }
+  
+  .tab-content {
+    display: none;
+  }
+  
+  .tab-content.active {
+    display: block;
+  }
+  
+  .content-wrapper {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 40px;
+  }
+  
+  .text-content {
+    flex: 1;
+    min-width: 300px;
+  }
+  
+  .image-content {
+    flex: 1;
+    min-width: 300px;
+  }
+  
+  .image-content img {
+    width: 100%;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+  }
+  
+  .retina-ai-section h3 {
+    font-size: 1.8rem;
+    margin-bottom: 20px;
+    color: #2c3e50;
+  }
+  
+  .retina-ai-section ul {
+    list-style: none;
+    padding: 0;
+    margin-bottom: 30px;
+  }
+  
+  .retina-ai-section li {
+    margin-bottom: 15px;
+    padding-left: 30px;
+    position: relative;
+    font-size: 1.1rem;
+    line-height: 1.6;
+  }
+  
+  .retina-ai-section li input[type="checkbox"] {
+    position: absolute;
+    left: 0;
+    top: 3px;
+  }
+  
+  .cta-btn {
+    padding: 12px 30px;
+    background-color: #f7634d;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 1.1rem;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+  }
+  
+  .cta-btn:hover {
+    background-color: #00c17c;
+  }
+  
+  @media (max-width: 768px) {
+    .retina-ai-section h2 {
+      font-size: 2rem;
+    }
+    
+    .tab-btn {
+      padding: 10px 15px;
+      margin: 5px;
+      font-size: 1rem;
+    }
+    
+    .content-wrapper {
+      flex-direction: column;
+    }
+    
+    .text-content, .image-content {
+      width: 100%;
+    }
+  }
 
 
+/*  */
+/*  */
+/*  */
+.contact-section {
+  background-color: #fff;
+  padding: 60px 20px;
+  font-family: 'Poppins', sans-serif;
+}
+
+.section-title {
+  text-align: center;
+  color: #e74c3c;
+  font-size: 24px;
+  margin-bottom: 40px;
+  text-transform: uppercase;
+  font-weight: bold;
+}
+
+.contact-container {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.contact-content {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 40px;
+}
+
+.contact-info {
+  flex: 1;
+  min-width: 300px;
+}
+
+.contact-info p {
+  margin: 10px 0;
+  font-size: 15px;
+  color: #333;
+}
+
+.contact-info i {
+  margin-right: 10px;
+  color: #e74c3c;
+}
+.contact-info .about-us h3 {
+  color: #e74c3c;
+}
+.social-icons a {
+  margin-right: 10px;
+  color: #333;
+  text-decoration: none;
+  font-size: 18px;
+  transition: color 0.3s;
+}
+
+.social-icons a:hover {
+  color: #e74c3c;
+}
+
+
+.contact-form {
+  flex: 1;
+  min-width: 300px;
+}
+
+.contact-form form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.contact-form input,
+.contact-form textarea {
+  padding: 15px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  font-size: 14px;
+}
+
+.contact-form button {
+  background-color: #e74c3c;
+  color: white;
+  border: none;
+  padding: 12px;
+  font-size: 16px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.contact-form button:hover {
+  background-color: #c0392b;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .contact-content {
+    flex-direction: column;
+  }
+}

@@ -5,12 +5,20 @@ from mysql.connector import Error
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 import os
 from datetime import datetime
 from PIL import Image
 import traceback
 import cv2
+from PIL import Image
+from torchvision import transforms
 from werkzeug.security import generate_password_hash, check_password_hash
+from model import build_unet 
+import time
+import traceback
+from typing import Union
+
 
 app = Flask(__name__)
 app.secret_key = 'your_secure_secret_key_here'
@@ -24,208 +32,7 @@ CLASSIFICATION_DIR = os.path.join(MODEL_BASE_DIR, "classification")
 os.makedirs(SEGMENTATION_DIR, exist_ok=True)
 os.makedirs(CLASSIFICATION_DIR, exist_ok=True)
 
-#Unet model
-class UNet(nn.Module):
-    def __init__(self, in_channels=3, out_channels=1):
-        super(UNet, self).__init__()
-        
-        def double_conv(in_ch, out_ch):
-            return nn.Sequential(
-                nn.Conv2d(in_ch, out_ch, 3, padding=1),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(out_ch, out_ch, 3, padding=1),
-                nn.ReLU(inplace=True)
-            )
-        
-        # Downsampling path
-        self.down1 = double_conv(in_channels, 64)
-        self.down2 = double_conv(64, 128)
-        self.down3 = double_conv(128, 256)
-        self.pool = nn.MaxPool2d(2)
-        
-        # Upsampling path
-        self.up2 = nn.ConvTranspose2d(256, 128, 2, stride=2)
-        self.up1 = nn.ConvTranspose2d(128, 64, 2, stride=2)
-        
-        # Final convolution
-        self.conv_last = nn.Conv2d(64, out_channels, 1)
 
-    def forward(self, x):
-        # Encoder
-        conv1 = self.down1(x)
-        x = self.pool(conv1)
-        conv2 = self.down2(x)
-        x = self.pool(conv2)
-        x = self.down3(x)
-        
-        # Decoder
-        x = self.up2(x)
-        x = torch.cat([x, conv2], dim=1)
-        x = self.up1(x)
-        x = torch.cat([x, conv1], dim=1)
-        
-        return torch.sigmoid(self.conv_last(x))
-
-class DoubleConv(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.double_conv = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, 3, padding=1),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, 3, padding=1),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True)
-        )
-
-    def forward(self, x):
-        return self.double_conv(x)
-
-class ResidualBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, 3, padding=1)
-        self.bn1 = nn.BatchNorm2d(out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, 3, padding=1)
-        self.bn2 = nn.BatchNorm2d(out_channels)
-        self.residual = nn.Conv2d(in_channels, out_channels, 1)
-
-    def forward(self, x):
-        residual = self.residual(x)
-        x = F.relu(self.bn1(self.conv1(x)))
-        x = self.bn2(self.conv2(x))
-        x += residual
-        return F.relu(x)
-
-class DownWithResidual(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.maxpool_residual = nn.Sequential(
-            nn.MaxPool2d(2),
-            ResidualBlock(in_channels, out_channels)
-        )
-
-    def forward(self, x):
-        return self.maxpool_residual(x)
-
-class AttentionBlock(nn.Module):
-    def __init__(self, in_channels):
-        super().__init__()
-        self.noise_estimator = nn.Sequential(
-            nn.Linear(in_channels, in_channels),
-            nn.ReLU()
-        )
-        self.fc1 = nn.Linear(in_channels * 2, in_channels)
-        self.fc2 = nn.Linear(in_channels, 1)
-
-    def forward(self, x, skip):
-        # Implémentation simplifiée de l'attention
-        batch, channels, _, _ = x.size()
-        noise = self.noise_estimator(x.mean([2,3]))
-        combined = torch.cat([skip, x], dim=1)
-        attention = torch.sigmoid(self.fc2(F.relu(self.fc1(combined))))
-        return x * attention
-
-class UpWithAttention(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.up = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2)
-        self.conv = DoubleConv(in_channels, out_channels)
-        self.attention = AttentionBlock(out_channels)
-
-    def forward(self, x, skip):
-        x = self.up(x)
-        x = torch.cat([x, skip], dim=1)
-        x = self.conv(x)
-        x = self.attention(x, skip)
-        return x
-
-class ASE_Res_UNet(nn.Module):
-    def __init__(self, in_channels=3, out_channels=1):
-        super().__init__()
-        
-        # Encoder
-        self.inc = DoubleConv(in_channels, 64)
-        self.down1 = DownWithResidual(64, 128)
-        self.down2 = DownWithResidual(128, 256)
-        self.down3 = DownWithResidual(256, 512)
-        self.down4 = DownWithResidual(512, 1024)
-        
-        # Decoder
-        self.up3 = UpWithAttention(1024, 512)
-        self.up2 = UpWithAttention(512, 256)
-        self.up1 = UpWithAttention(256, 128)
-        self.up0 = UpWithAttention(128, 64)
-        
-        # Final layer
-        self.outc = nn.Sequential(
-            nn.Conv2d(64, out_channels, 1)
-        )
-
-    def forward(self, x):
-        # Encoder
-        x1 = self.inc(x)
-        x2 = self.down1(x1)
-        x3 = self.down2(x2)
-        x4 = self.down3(x3)
-        x5 = self.down4(x4)
-        
-        # Decoder
-        x = self.up3(x5, x4)
-        x = self.up2(x, x3)
-        x = self.up1(x, x2)
-        x = self.up0(x, x1)
-        
-        return torch.sigmoid(self.outc(x))
-
-class RobustAdaptiveUNet(nn.Module):
-    def __init__(self, encoder_channels=None, decoder_channels=None, in_channels=3, out_channels=1):
-        super().__init__()
-
-        # Default channel structure if not inferred
-        self.encoder_channels = encoder_channels or [64, 128, 256, 512]
-        self.decoder_channels = decoder_channels or list(reversed(self.encoder_channels))
-
-        # Initial conv
-        self.inc = DoubleConv(in_channels, self.encoder_channels[0])
-
-        # Down path
-        self.downs = nn.ModuleList()
-        for i in range(len(self.encoder_channels) - 1):
-            self.downs.append(nn.Sequential(
-                nn.MaxPool2d(2),
-                DoubleConv(self.encoder_channels[i], self.encoder_channels[i + 1])
-            ))
-
-        # Up path
-        self.ups = nn.ModuleList()
-        self.up_convs = nn.ModuleList()
-        for i in range(len(self.decoder_channels) - 1):
-            self.ups.append(nn.ConvTranspose2d(self.decoder_channels[i], self.decoder_channels[i + 1], kernel_size=2, stride=2))
-            self.up_convs.append(DoubleConv(self.decoder_channels[i + 1] + self.encoder_channels[-(i + 2)], self.decoder_channels[i + 1]))
-
-        # Final conv
-        self.outc = nn.Conv2d(self.decoder_channels[-1], out_channels, kernel_size=1)
-
-    def forward(self, x):
-        features = [self.inc(x)]
-        for down in self.downs:
-            features.append(down(features[-1]))
-
-        x = features[-1]
-
-        for i in range(len(self.ups)):
-            x = self.ups[i](x)
-
-            # Resize if necessary (handle mismatched feature map sizes)
-            skip = features[-(i + 2)]
-            if x.shape[2:] != skip.shape[2:]:
-                x = F.interpolate(x, size=skip.shape[2:], mode='bilinear', align_corners=True)
-
-            x = torch.cat([x, skip], dim=1)
-            x = self.up_convs[i](x)
-
-        return torch.sigmoid(self.outc(x))
 
 
 @app.before_request
@@ -581,12 +388,34 @@ def user_dashboard():
                          models=models,
                          error=error)
 
-
+def create_overlay(original: np.ndarray, mask: np.ndarray, alpha: float = 0.4) -> np.ndarray:
+    """Create overlay visualization of mask on original image"""
+    try:
+        # Ensure mask is single-channel and properly sized
+        if mask.ndim == 3:
+            mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
+            
+        if original.shape[:2] != mask.shape[:2]:
+            mask = cv2.resize(mask, (original.shape[1], original.shape[0]))
+        
+        # Create red mask overlay
+        mask_color = np.zeros_like(original)
+        mask_color[mask > 0] = [0, 0, 255]  # Red color for mask
+        
+        # Blend with original image
+        overlay = cv2.addWeighted(original, 1 - alpha, mask_color, alpha, 0)
+        return overlay
+        
+    except Exception as e:
+        print(f"⚠️ Overlay creation error: {str(e)}")
+        return original  # Fallback to original image
+    
 @app.route('/process-image', methods=['POST'])
 def process_image():
     connection = None
-    cursor = None    
+    cursor = None
     try:
+        # Initial validation
         if 'image' not in request.files:
             return jsonify({'error': 'No image uploaded'}), 400
             
@@ -596,13 +425,12 @@ def process_image():
         if not model_id or not file:
             return jsonify({'error': 'Missing required fields'}), 400
 
+        # Save uploaded file
         filename = save_uploaded_file(file)
         if not filename:
             return jsonify({'error': 'Invalid file format'}), 400
-        
-        if file.filename == '':
-            return jsonify({'error': 'Empty file submitted'}), 400
 
+        # Database connection
         connection = create_connection()
         cursor = connection.cursor(dictionary=True)
         cursor.execute("SELECT * FROM models WHERE id = %s", (model_id,))
@@ -611,198 +439,180 @@ def process_image():
         if not model_data:
             return jsonify({'error': 'Model not found'}), 404
 
-        # Load the model with improved loading logic
-        model = get_model_from_db(model_data['id'])
-        model.eval()
-        
-        # Preprocess image and prepare for model
+        # Load model with debugging
+        start_load = time.time()
+        model = get_model_from_db(model_data['id'], create_connection, MODEL_BASE_DIR)
+        print(f"🕒 Model loading took: {time.time() - start_load:.2f}s")
+
+        # Preprocessing with validation
         input_tensor = preprocess_image(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-        
-        # Free GPU memory if using CUDA
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        
-        # Process image with model
-        try:
-            with torch.no_grad():
-                output = model(input_tensor)
-                
-                # Log output information for debugging
-                if isinstance(output, dict):
-                    app.logger.info(f"Model returned dictionary with keys: {output.keys()}")
-                    if 'out' in output:
-                        output_tensor = output['out']
-                    else:
-                        output_tensor = list(output.values())[0]  # Take first value
-                else:
-                    output_tensor = output
-                
-                app.logger.info(f"Output shape: {output_tensor.shape}")
-                app.logger.info(f"Output min: {output_tensor.min().item()}, max: {output_tensor.max().item()}, mean: {output_tensor.mean().item()}")
-        except RuntimeError as e:
-            if 'CUDA out of memory' in str(e):
-                # Fallback to CPU if CUDA OOM
-                torch.cuda.empty_cache()
-                device = torch.device('cpu')
-                model = model.to(device)
-                input_tensor = input_tensor.to(device)
-                
-                with torch.no_grad():
-                    output = model(input_tensor)
-            else:
-                raise e
+        print(f"🔵 Input tensor shape: {input_tensor.shape}")
+        print(f"🔵 Input range - Min: {input_tensor.min().item():.4f}, Max: {input_tensor.max().item():.4f}")
+
+        # Model inference
+        start_infer = time.time()
+        with torch.no_grad():
+            model.eval()
+            output = model(input_tensor)
+            
+            # Raw output statistics
+            print(f"🔴 Raw output stats:")
+            print(f"Shape: {output.shape}")
+            print(f"Min: {output.min().item():.4f}")
+            print(f"Max: {output.max().item():.4f}")
+            print(f"Mean: {output.mean().item():.4f}")
+            print(f"Std: {output.std().item():.4f}")
+
+            # Apply sigmoid
+            probabilities = torch.sigmoid(output)
+            print(f"🟢 Post-sigmoid stats:")
+            print(f"Min: {probabilities.min().item():.4f}")
+            print(f"Max: {probabilities.max().item():.4f}")
+            print(f"Mean: {probabilities.mean().item():.4f}")
+
+        print(f"🕒 Inference took: {time.time() - start_infer:.2f}s")
 
         # Save results
         result_filename = f"result_{filename}"
         save_path = os.path.join(app.config['UPLOAD_FOLDER'], result_filename)
         
-        # Save result based on model type
-        if model_data['model_type'] == 'segmentation':
-            save_segmentation_result(output, save_path)
-        else:
-            return jsonify({'error': 'Classification not implemented'}), 501
-
-        # Create overlay version for better visualization
-        overlay_filename = f"overlay_{filename}"
+        # Process and save mask
         try:
-            # Load original and mask
+            # Convert to numpy and threshold
+            mask_np = probabilities.squeeze().cpu().numpy()
+            print(f"🟠 Numpy mask stats:")
+            print(f"Shape: {mask_np.shape}")
+            print(f"Min: {mask_np.min():.4f}")
+            print(f"Max: {mask_np.max():.4f}")
+            
+            mask = (mask_np > 0.5).astype(np.uint8) * 255
+            cv2.imwrite(save_path, mask)
+            print(f"✅ Mask saved with {np.mean(mask > 0):.2%} foreground")
+        except Exception as save_error:
+            print(f"❌ Mask saving failed: {str(save_error)}")
+            raise
+
+        # Create overlay
+        try:
             original = cv2.imread(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-            mask = cv2.imread(save_path)
-            
-            # Resize if needed
-            if original.shape[:2] != mask.shape[:2]:
-                mask = cv2.resize(mask, (original.shape[1], original.shape[0]))
-            
-            # Create overlay
-            alpha = 0.6
-            overlay = cv2.addWeighted(original, 1-alpha, mask, alpha, 0)
-            
-            # Save overlay
-            overlay_path = os.path.join(app.config['UPLOAD_FOLDER'], overlay_filename)
+            overlay = create_overlay(original, mask)
+            overlay_path = os.path.join(app.config['UPLOAD_FOLDER'], f"overlay_{filename}")
             cv2.imwrite(overlay_path, overlay)
         except Exception as overlay_error:
-            app.logger.warning(f"Could not create overlay: {str(overlay_error)}")
-            overlay_filename = None
+            print(f"⚠️ Overlay creation failed: {str(overlay_error)}")
+            overlay_path = None
 
-        # Log the processing in the database
-        try:
-            cursor.execute("""
-                INSERT INTO user_history (user_id, model_id, image_path, result_path)
-                VALUES (%s, %s, %s, %s)
-            """, (session.get('user_id'), model_id, filename, result_filename))
-            connection.commit()
-        except Exception as db_error:
-            app.logger.warning(f"Could not log to history: {str(db_error)}")
-
-        # Return paths to the processed images
+        # Prepare response
         response = {
             'original': url_for('uploaded_file', filename=filename),
             'processed': url_for('uploaded_file', filename=result_filename)
         }
-        
-        # Add overlay if available
-        if overlay_filename:
-            response['overlay'] = url_for('uploaded_file', filename=overlay_filename)
+        if overlay_path:
+            response['overlay'] = url_for('uploaded_file', filename=f"overlay_{filename}")
 
         return jsonify(response)
 
     except Exception as e:
-        app.logger.error(f"Processing error: {str(e)}")
-        app.logger.error(traceback.format_exc())  
-        if connection: connection.rollback()
+        app.logger.error(f"🔥 Processing error: {str(e)}")
+        app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
+
     finally:
-        if cursor: cursor.close()
+        if cursor:
+            cursor.close()
         if connection and connection.is_connected(): 
             connection.close()
+        # Cleanup GPU memory
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
-def get_model_from_db(model_id):
-    """
-    Load model from database with improved architecture detection and error handling
-    """
+def get_model_from_db(model_id, connection_creator, model_base_dir):
+    """Load trained U-Net model from database with rigorous checks"""
+    connection = None
+    cursor = None
     try:
-        connection = create_connection()
+        # 1. Database connection
+        connection = connection_creator()
         cursor = connection.cursor(dictionary=True)
-        cursor.execute("SELECT model_path, model_format, model_type FROM models WHERE id = %s", (model_id,))
+        cursor.execute(
+            "SELECT model_path, model_format, model_type FROM models WHERE id = %s",
+            (model_id,)
+        )
         result = cursor.fetchone()
+        
         if not result:
-            raise ValueError("Model not found")
+            raise ValueError(f"❌ Model ID {model_id} not found in database")
 
-        full_path = os.path.join(MODEL_BASE_DIR, result['model_path'])
-        print(f"Loading model from: {full_path}")
-
-        # Check file exists
+        # 2. Validate model file existence
+        full_path = os.path.join(model_base_dir, result['model_path'])
         if not os.path.exists(full_path):
-            raise FileNotFoundError(f"Model file not found at {full_path}")
+            raise FileNotFoundError(f"🚨 Model file missing at {full_path}")
 
-        # Load the state dict or model
+        print(f"🔍 Loading model from: {full_path}")
+
+        # 3. Initialize fresh model (must match training architecture)
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        model = build_unet().to(device)  # Your actual model class
+
+        # 4. Advanced state dict handling
         try:
-            state_dict = torch.load(full_path, map_location='cpu')
-            print(f"Successfully loaded state_dict with {len(state_dict)} keys")
-        except Exception as e:
-            print(f"Error loading model: {str(e)}")
-            raise
-
-        # Check if it's a complete model or state_dict
-        if isinstance(state_dict, nn.Module):
-            print("✅ Loaded complete model")
-            return state_dict
-
-        # Extract model architecture info from state_dict
-        architecture_type = detect_architecture_from_state_dict(state_dict)
-        print(f"Detected architecture: {architecture_type}")
-
-        if architecture_type == "deeplabv3":
-            from torchvision.models.segmentation import deeplabv3_resnet101
-    
-            # Try to infer the number of classes
-            num_classes = 1
-            for key, value in state_dict.items():
-                if 'classifier.4.weight' in key:
-                    num_classes = value.shape[0]
-                    print(f"✅ Inferred num_classes: {num_classes}")
-                    break
-
-            model = deeplabv3_resnet101(weights=None, num_classes=num_classes)
-            strict = False
-
-
-        elif architecture_type == "ASE_Res_UNet":
-            model = ASE_Res_UNet()
-            strict = True
-        elif architecture_type == "UNet":
-            model = UNet()
-            strict = True
-        else:
-            print("⚠ Using RobustAdaptiveUNet for unknown architecture")
-            model = create_robust_adaptive_unet_from_state_dict(state_dict)
-            strict = False
-
-        # Try to load with adjusted keys if needed
-        try:
-            incompatible = model.load_state_dict(state_dict, strict=strict)
-            print(f"Model loaded with {'no' if not incompatible else 'some'} incompatible keys")
-            if not strict and incompatible:
-                print(f"Missing keys: {len(incompatible.missing_keys)}, Unexpected keys: {len(incompatible.unexpected_keys)}")
-        except Exception as e:
-            print(f"Error during state_dict loading: {str(e)}")
-            print("🔄 Trying adjusted key mapping...")
+            checkpoint = torch.load(full_path, map_location=device)
             
-            # Try with adjusted keys
-            mapped_state_dict = map_state_dict_keys(state_dict, model)
-            incompatible = model.load_state_dict(mapped_state_dict, strict=False)
-            print(f"Model loaded with adjusted keys. Missing: {len(incompatible.missing_keys)}, Unexpected: {len(incompatible.unexpected_keys)}")
+            # Handle different checkpoint formats
+            if 'state_dict' in checkpoint:
+                state_dict = checkpoint['state_dict']
+            elif 'model' in checkpoint:
+                state_dict = checkpoint['model']
+            elif isinstance(checkpoint, nn.Module):
+                state_dict = checkpoint.state_dict()
+            else:
+                state_dict = checkpoint
+
+            # Remove module prefix if present (for DDP trained models)
+            state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+
+            # Load with strict=False to handle potential mismatches
+            load_result = model.load_state_dict(state_dict, strict=False)
+            
+            # Print missing/unexpected keys for debugging
+            if load_result.missing_keys:
+                print(f"⚠️ Missing keys: {load_result.missing_keys}")
+            if load_result.unexpected_keys:
+                print(f"⚠️ Unexpected keys: {load_result.unexpected_keys}")
+
+        except Exception as e:
+            raise RuntimeError(f"🔥 Failed to load weights: {str(e)}") from e
+
+        # 5. Validate model initialization
+        print("✅ Model loaded successfully")
+        print(f"📐 Model architecture: {model.__class__.__name__}")
+        
+        # Debug: Print first conv layer weights
+        first_conv = model.e1.conv.conv1.weight
+        print(f"⚙️ First conv layer weights (mean±std): {first_conv.mean().item():.4f} ± {first_conv.std().item():.4f}")
+        
+        # Debug: Check for NaN/inf values
+        for name, param in model.named_parameters():
+            if torch.isnan(param).any():
+                raise ValueError(f"🤯 NaN values detected in {name}")
+            if torch.isinf(param).any():
+                raise ValueError(f"🤯 Inf values detected in {name}")
 
         model.eval()
         return model
 
     except Exception as e:
-        print(f"❌ Model loading failed: {str(e)}")
+        print(f"❌ Critical error loading model: {str(e)}")
+        print("🛠️ Debugging info:")
+        print(f"- Model path: {full_path}")
+        print(f"- Checkpoint keys: {list(checkpoint.keys()) if 'checkpoint' in locals() else 'N/A'}")
+        print(f"- Device: {device}")
         print(traceback.format_exc())
-        print("⚠ Falling back to SuperSafeUNet")
-        return create_super_safe_unet()
+        raise RuntimeError("Model loading failed") from e
+
     finally:
-        if cursor: cursor.close()
+        if cursor:
+            cursor.close()
         if connection and connection.is_connected():
             connection.close()
 
@@ -812,657 +622,12 @@ def detect_architecture_from_state_dict(state_dict):
     """
     keys = list(state_dict.keys())
     
-    # DeepLabV3 detection
-    if any('classifier.4' in k for k in keys) or any('classifier.0' in k for k in keys):
-        return "deeplabv3"
-    
-    # ASE_Res_UNet detection - has attention blocks
-    if any('attention' in k for k in keys):
-        return "ASE_Res_UNet"
-    
     # Basic UNet detection
     if any('up' in k and 'conv' in k for k in keys) or any('down' in k for k in keys):
         return "UNet"
     
     # Default unknown
     return "unknown"
-
-def create_adaptive_unet():
-    """
-    Create a flexible UNet model that can adapt to different architectures
-    """
-    class AdaptiveUNet(nn.Module):
-        def __init__(self, in_channels=3, out_channels=1):
-            super().__init__()
-            
-            # Encoder path with different channel sizes
-            self.inc = DoubleConv(in_channels, 64)
-            
-            self.down1 = nn.Sequential(
-                nn.MaxPool2d(2),
-                DoubleConv(64, 128)
-            )
-            
-            self.down2 = nn.Sequential(
-                nn.MaxPool2d(2),
-                DoubleConv(128, 256)
-            )
-            
-            self.down3 = nn.Sequential(
-                nn.MaxPool2d(2),
-                DoubleConv(256, 512)
-            )
-            
-            # Decoder path
-            self.up3 = nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2)
-            self.conv_up3 = DoubleConv(512, 256)  # 512 = 256 + 256 (skip connection)
-            
-            self.up2 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)
-            self.conv_up2 = DoubleConv(256, 128)  # 256 = 128 + 128 (skip connection)
-            
-            self.up1 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
-            self.conv_up1 = DoubleConv(128, 64)  # 128 = 64 + 64 (skip connection)
-            
-            # Final layer
-            self.outc = nn.Conv2d(64, out_channels, 1)
-
-        def forward(self, x):
-            # Encoder
-            x1 = self.inc(x)
-            x2 = self.down1(x1)
-            x3 = self.down2(x2)
-            x4 = self.down3(x3)
-            
-            # Decoder with skip connections
-            x = self.up3(x4)
-            # Handle different sizes for skip connections
-            if x.shape[2:] != x3.shape[2:]:
-                x = F.interpolate(x, size=x3.shape[2:], mode='bilinear', align_corners=True)
-            x = torch.cat([x3, x], dim=1)
-            x = self.conv_up3(x)
-            
-            x = self.up2(x)
-            if x.shape[2:] != x2.shape[2:]:
-                x = F.interpolate(x, size=x2.shape[2:], mode='bilinear', align_corners=True)
-            x = torch.cat([x2, x], dim=1)
-            x = self.conv_up2(x)
-            
-            x = self.up1(x)
-            if x.shape[2:] != x1.shape[2:]:
-                x = F.interpolate(x, size=x1.shape[2:], mode='bilinear', align_corners=True)
-            x = torch.cat([x1, x], dim=1)
-            x = self.conv_up1(x)
-            
-            return torch.sigmoid(self.outc(x))
-    
-    return AdaptiveUNet()
-
-def map_state_dict_keys(state_dict, model):
-    """
-    Attempt to map keys from state_dict to the target model structure
-    """
-    new_state_dict = {}
-    model_keys = dict(model.named_parameters())
-    
-    # Common patterns to try mapping
-    for old_key, value in state_dict.items():
-        # Try direct match first
-        if old_key in model_keys:
-            new_state_dict[old_key] = value
-            continue
-        
-        # Try to handle different encoder naming
-        if old_key.startswith('inc.') and 'inc.' in str(model_keys):
-            new_key = old_key
-            new_state_dict[new_key] = value
-        elif old_key.startswith('down1.'):
-            if 'down1.' in str(model_keys):
-                new_key = old_key
-            else:
-                new_key = old_key.replace('down1.', 'down1.1.')
-            new_state_dict[new_key] = value
-        elif old_key.startswith('down2.'):
-            if 'down2.' in str(model_keys):
-                new_key = old_key
-            else:
-                new_key = old_key.replace('down2.', 'down2.1.')
-            new_state_dict[new_key] = value
-        elif old_key.startswith('down3.'):
-            if 'down3.' in str(model_keys):
-                new_key = old_key
-            else:
-                new_key = old_key.replace('down3.', 'down3.1.')
-            new_state_dict[new_key] = value
-        
-        # Try to handle different decoder naming
-        elif old_key.startswith('up1.'):
-            if old_key.startswith('up1.up.'):
-                new_key = old_key.replace('up1.up.', 'up1.')
-            elif old_key.startswith('up1.conv.'):
-                new_key = old_key.replace('up1.conv.', 'conv_up1.')
-            else:
-                new_key = old_key
-            new_state_dict[new_key] = value
-        elif old_key.startswith('up2.'):
-            if old_key.startswith('up2.up.'):
-                new_key = old_key.replace('up2.up.', 'up2.')
-            elif old_key.startswith('up2.conv.'):
-                new_key = old_key.replace('up2.conv.', 'conv_up2.')
-            else:
-                new_key = old_key
-            new_state_dict[new_key] = value
-        elif old_key.startswith('up3.'):
-            if old_key.startswith('up3.up.'):
-                new_key = old_key.replace('up3.up.', 'up3.')
-            elif old_key.startswith('up3.conv.'):
-                new_key = old_key.replace('up3.conv.', 'conv_up3.')
-            else:
-                new_key = old_key
-            new_state_dict[new_key] = value
-        elif old_key.startswith('outc.'):
-            new_state_dict[old_key] = value
-        else:
-            # Add without modification as fallback
-            new_state_dict[old_key] = value
-    
-    return new_state_dict
-
-def create_super_safe_unet():
-    """Create an extremely simple and safe UNet model that is guaranteed to work with any input"""
-    class SuperSafeUNet(nn.Module):
-        def __init__(self):
-            super().__init__()
-            # Very simple encoder - just map to features
-            self.encoder = nn.Sequential(
-                nn.Conv2d(3, 16, 3, padding=1),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(16, 16, 3, padding=1),
-                nn.ReLU(inplace=True),
-                nn.MaxPool2d(2),
-                nn.Conv2d(16, 32, 3, padding=1),
-                nn.ReLU(inplace=True),
-                nn.MaxPool2d(2)
-            )
-            
-            # Very simple decoder - directly to output (no skip connections to worry about)
-            self.decoder = nn.Sequential(
-                nn.Conv2d(32, 16, 3, padding=1),
-                nn.ReLU(inplace=True),
-                nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-                nn.Conv2d(16, 8, 3, padding=1),
-                nn.ReLU(inplace=True),
-                nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-                nn.Conv2d(8, 1, 1)  # Direct 1-channel output
-            )
-            
-        def forward(self, x):
-            # Super simple forward pass without any complex channel logic
-            x = self.encoder(x)
-            x = self.decoder(x)
-            return torch.sigmoid(x)
-    
-    return SuperSafeUNet()
-
-
-
-    """Create a model that adapts to the state_dict's structure by analyzing it first"""
-    # Analyze state_dict to determine architecture
-    up_layers = {}
-    in_channels = 3  # Default input channels
-    out_channels = 1  # Default output channels
-    
-    # Extract key info from state dict
-    for key in state_dict.keys():
-        if 'up' in key and '.weight' in key and 'conv' not in key:
-            parts = key.split('.')
-            layer_name = parts[0]  # e.g., 'up1', 'up2'
-            if layer_name not in up_layers:
-                up_layers[layer_name] = {}
-                
-            if parts[-1] == 'weight':
-                shape = state_dict[key].shape
-                up_layers[layer_name]['shape'] = shape
-                
-                # For transposed conv layers
-                if len(shape) == 4:  # Conv or ConvTranspose weights
-                    in_ch, out_ch = shape[1], shape[0]  # For ConvTranspose: out_channels, in_channels/groups, kH, kW
-                    up_layers[layer_name]['in_ch'] = in_ch
-                    up_layers[layer_name]['out_ch'] = out_ch
-    
-    # Define an adaptive UNet class based on the analysis
-    class AdaptiveUNet(nn.Module):
-        def __init__(self):
-            super().__init__()
-            
-            # Determine encoder-decoder structure based on analysis
-            max_layer_num = max([int(layer_name.replace('up', '')) for layer_name in up_layers]) if up_layers else 4
-            
-            # Default channel config if we can't determine from state_dict
-            channels = [64, 128, 256, 512, 1024][:max_layer_num+1]
-            
-            # Override with detected channels if available
-            for i in range(1, max_layer_num+1):
-                layer_name = f'up{i}'
-                if layer_name in up_layers and 'out_ch' in up_layers[layer_name]:
-                    if i < len(channels):
-                        channels[i] = up_layers[layer_name]['out_ch']
-            
-            # Encoder
-            self.inc = DoubleConv(in_channels, channels[0])
-            self.downs = nn.ModuleList()
-            for i in range(max_layer_num):
-                self.downs.append(nn.Sequential(
-                    nn.MaxPool2d(2),
-                    DoubleConv(channels[i], channels[i+1])
-                ))
-            
-            # Decoder
-            self.ups = nn.ModuleList()
-            for i in range(max_layer_num, 0, -1):
-                self.ups.append(nn.Sequential(
-                    nn.ConvTranspose2d(channels[i], channels[i-1], kernel_size=2, stride=2),
-                    DoubleConv(channels[i], channels[i-1])  # After concatenation
-                ))
-            
-            # Final convolution
-            self.outc = nn.Conv2d(channels[0], out_channels, kernel_size=1)
-            
-        def forward(self, x):
-            # Store encoder outputs for skip connections
-            features = [self.inc(x)]
-            
-            # Encoder path
-            for down in self.downs:
-                features.append(down(features[-1]))
-            
-            # Start with the bottleneck
-            x = features[-1]
-            
-            # Decoder path with skip connections
-            for i, up in enumerate(self.ups):
-                # Apply transposed convolution
-                x = up[0](x)
-                
-                # Get corresponding encoder feature map
-                skip_connection = features[-(i+2)]
-                
-                # Handle potential size mismatches
-                if x.shape[2:] != skip_connection.shape[2:]:
-                    x = F.interpolate(x, size=skip_connection.shape[2:], mode='bilinear', align_corners=True)
-                
-                # Concatenate skip connection
-                x = torch.cat([skip_connection, x], dim=1)
-                
-                # Apply convolutions after concatenation
-                x = up[1](x)
-            
-            return torch.sigmoid(self.outc(x))
-    
-    # Create model and load state dict with flexible settings
-    model = AdaptiveUNet()
-    
-    # Modify state_dict keys if necessary to match our model structure
-    new_state_dict = {}
-    for key, value in state_dict.items():
-        if key.startswith('up') and '.up.' in key:
-            # Handle transposed convolution weights
-            parts = key.split('.')
-            layer_num = int(parts[0].replace('up', ''))
-            new_key = f'ups.{len(model.ups) - layer_num}.0.{".".join(parts[2:])}'
-            new_state_dict[new_key] = value
-        elif key.startswith('up') and '.conv.' in key:
-            # Handle conv weights after skip connections
-            parts = key.split('.')
-            layer_num = int(parts[0].replace('up', ''))
-            new_key = f'ups.{len(model.ups) - layer_num}.1.{".".join(parts[2:])}'
-            new_state_dict[new_key] = value
-        elif key.startswith('inc'):
-            new_state_dict[key] = value
-        elif key.startswith('down'):
-            parts = key.split('.')
-            layer_num = int(parts[0].replace('down', ''))
-            if len(parts) > 2:
-                new_key = f'downs.{layer_num-1}.1.{".".join(parts[2:])}'
-            else:
-                new_key = f'downs.{layer_num-1}.{".".join(parts[1:])}'
-            new_state_dict[new_key] = value
-        elif key.startswith('outc'):
-            new_state_dict[key] = value
-    
-    # Try to load with the new state dict, fall back to original if needed
-    try:
-        model.load_state_dict(new_state_dict, strict=False)
-    except:
-        model.load_state_dict(state_dict, strict=False)
-    
-    return model
-
-def create_adaptive_unet(state_dict):
-    """Create a model that adapts to the state_dict's structure by analyzing it first"""
-    # Analyze state_dict to determine architecture
-    up_layers = {}
-    in_channels = 3  # Default input channels
-    out_channels = 1  # Default output channels
-    
-    # Analyze output layer first
-    out_layer_key = None
-    for key in state_dict.keys():
-        if 'outc' in key and '.weight' in key:
-            out_layer_key = key
-            out_layer_shape = state_dict[key].shape
-            if len(out_layer_shape) == 4:  # Conv weights shape is [out_channels, in_channels, kH, kW]
-                in_channels_for_out = out_layer_shape[1]  # This will be our final encoder channel count
-                out_channels = out_layer_shape[0]  # This is our output channel count
-    
-    # Extract key info from state dict
-    for key in state_dict.keys():
-        if 'up' in key and '.weight' in key and 'conv' not in key:
-            parts = key.split('.')
-            layer_name = parts[0]  # e.g., 'up1', 'up2'
-            if layer_name not in up_layers:
-                up_layers[layer_name] = {}
-                
-            if parts[-1] == 'weight':
-                shape = state_dict[key].shape
-                up_layers[layer_name]['shape'] = shape
-                
-                # For transposed conv layers
-                if len(shape) == 4:  # Conv or ConvTranspose weights
-                    in_ch, out_ch = shape[1], shape[0]  # For ConvTranspose: out_channels, in_channels/groups, kH, kW
-                    up_layers[layer_name]['in_ch'] = in_ch
-                    up_layers[layer_name]['out_ch'] = out_ch
-    
-    # Define an adaptive UNet class based on the analysis
-    class AdaptiveUNet(nn.Module):
-        def __init__(self):
-            super().__init__()
-            
-            # Determine encoder-decoder structure based on analysis
-            max_layer_num = max([int(layer_name.replace('up', '')) for layer_name in up_layers]) if up_layers else 4
-            
-            # Default channel config if we can't determine from state_dict
-            channels = [64, 128, 256, 512, 1024][:max_layer_num+1]
-            
-            # Override with detected channels if available
-            for i in range(1, max_layer_num+1):
-                layer_name = f'up{i}'
-                if layer_name in up_layers and 'out_ch' in up_layers[layer_name]:
-                    if i < len(channels):
-                        channels[i] = up_layers[layer_name]['out_ch']
-            
-            # Ensure proper channels for output layer if detected
-            if 'in_channels_for_out' in locals():
-                channels[0] = in_channels_for_out
-            
-            # Encoder
-            self.inc = DoubleConv(in_channels, channels[0])
-            self.downs = nn.ModuleList()
-            for i in range(max_layer_num):
-                self.downs.append(nn.Sequential(
-                    nn.MaxPool2d(2),
-                    DoubleConv(channels[i], channels[i+1])
-                ))
-            
-            # Decoder with special handling for the "concat" channel issue
-            self.ups = nn.ModuleList()
-            for i in range(max_layer_num, 0, -1):
-                # For upsampling we use standard channels
-                self.ups.append(nn.Sequential(
-                    nn.ConvTranspose2d(channels[i], channels[i-1], kernel_size=2, stride=2),
-                    # Critical: we use channels[i-1]*2 as input to handle the concatenation
-                    DoubleConv(channels[i-1]*2, channels[i-1])
-                ))
-            
-            # Final convolution
-            self.outc = nn.Conv2d(channels[0], out_channels, kernel_size=1)
-            
-        def forward(self, x):
-            # Store encoder outputs for skip connections
-            features = [self.inc(x)]
-            
-            # Encoder path
-            for down in self.downs:
-                features.append(down(features[-1]))
-            
-            # Start with the bottleneck
-            x = features[-1]
-            
-            # Decoder path with skip connections
-            for i, up in enumerate(self.ups):
-                # Apply transposed convolution
-                x = up[0](x)
-                
-                # Get corresponding encoder feature map
-                skip_connection = features[-(i+2)]
-                
-                # Handle potential size mismatches
-                if x.shape[2:] != skip_connection.shape[2:]:
-                    x = F.interpolate(x, size=skip_connection.shape[2:], mode='bilinear', align_corners=True)
-                
-                # Concatenate skip connection
-                x = torch.cat([skip_connection, x], dim=1)
-                
-                # Apply convolutions after concatenation
-                x = up[1](x)
-            
-            return torch.sigmoid(self.outc(x))
-    
-    # Create model and load state dict with flexible settings
-    model = AdaptiveUNet()
-    
-    # Modify state_dict keys if necessary to match our model structure
-    new_state_dict = {}
-    for key, value in state_dict.items():
-        if key.startswith('up') and '.up.' in key:
-            # Handle transposed convolution weights
-            parts = key.split('.')
-            layer_num = int(parts[0].replace('up', ''))
-            new_key = f'ups.{len(model.ups) - layer_num}.0.{".".join(parts[2:])}'
-            new_state_dict[new_key] = value
-        elif key.startswith('up') and '.conv.' in key:
-            # Handle conv weights after skip connections
-            parts = key.split('.')
-            layer_num = int(parts[0].replace('up', ''))
-            new_key = f'ups.{len(model.ups) - layer_num}.1.{".".join(parts[2:])}'
-            new_state_dict[new_key] = value
-        elif key.startswith('inc'):
-            new_state_dict[key] = value
-        elif key.startswith('down'):
-            parts = key.split('.')
-            layer_num = int(parts[0].replace('down', ''))
-            if len(parts) > 2:
-                new_key = f'downs.{layer_num-1}.1.{".".join(parts[2:])}'
-            else:
-                new_key = f'downs.{layer_num-1}.{".".join(parts[1:])}'
-            new_state_dict[new_key] = value
-        elif key.startswith('outc'):
-            new_state_dict[key] = value
-    
-    # Try to load with the new state dict, fall back to original if needed
-    try:
-        model.load_state_dict(new_state_dict, strict=False)
-    except:
-        model.load_state_dict(state_dict, strict=False)
-    
-    return model
-
-def create_compatible_unet(state_dict):
-    """Create a model with architecture matching the state_dict's dimensions"""
-    # Inspect the state dictionary to determine dimensions
-    channels = {}
-    
-    # Try to extract dimensions from the state dict
-    for key, param in state_dict.items():
-        if 'up4.up.weight' in key:
-            channels['up4_in'] = param.shape[0]
-            channels['up4_out'] = param.shape[1]
-        elif 'up3.up.weight' in key:
-            channels['up3_in'] = param.shape[0]
-            channels['up3_out'] = param.shape[1]
-        elif 'up2.up.weight' in key:
-            channels['up2_in'] = param.shape[0]
-            channels['up2_out'] = param.shape[1]
-        elif 'up1.up.weight' in key:
-            channels['up1_in'] = param.shape[0]
-            channels['up1_out'] = param.shape[1]
-    
-    # Create a flexible model class
-    class FlexibleUNet(nn.Module):
-        def __init__(self):
-            super().__init__()
-            # We'll use the dimensions extracted from state_dict
-            self.down1 = DoubleConv(3, channels.get('up1_out', 64))
-            self.down2 = DoubleConv(channels.get('up1_out', 64), channels.get('up2_out', 128))
-            self.down3 = DoubleConv(channels.get('up2_out', 128), channels.get('up3_out', 256))
-            self.down4 = DoubleConv(channels.get('up3_out', 256), channels.get('up4_out', 512))
-            self.pool = nn.MaxPool2d(2)
-            
-            # Upsampling path
-            self.up4 = nn.ConvTranspose2d(channels.get('up4_in', 512), channels.get('up4_out', 512), 2, stride=2)
-            self.up3 = nn.ConvTranspose2d(channels.get('up3_in', 256), channels.get('up3_out', 256), 2, stride=2)
-            self.up2 = nn.ConvTranspose2d(channels.get('up2_in', 128), channels.get('up2_out', 128), 2, stride=2)
-            self.up1 = nn.ConvTranspose2d(channels.get('up1_in', 64), channels.get('up1_out', 64), 2, stride=2)
-            
-            # Conv paths after upsampling
-            self.conv_up4 = DoubleConv(channels.get('up4_out', 512) + channels.get('up3_out', 256), 
-                                      channels.get('up3_in', 256))
-            self.conv_up3 = DoubleConv(channels.get('up3_out', 256) + channels.get('up2_out', 128), 
-                                      channels.get('up2_in', 128))
-            self.conv_up2 = DoubleConv(channels.get('up2_out', 128) + channels.get('up1_out', 64), 
-                                      channels.get('up1_in', 64))
-            self.conv_up1 = DoubleConv(channels.get('up1_out', 64) * 2, channels.get('up1_out', 64))
-            
-            # Final convolution
-            self.conv_last = nn.Conv2d(channels.get('up1_out', 64), 1, 1)
-
-        def forward(self, x):
-            # Encoder
-            d1 = self.down1(x)
-            x = self.pool(d1)
-            d2 = self.down2(x)
-            x = self.pool(d2)
-            d3 = self.down3(x)
-            x = self.pool(d3)
-            d4 = self.down4(x)
-            x = self.pool(d4)
-            
-            # Bridge and decoder
-            x = self.up4(x)
-            x = torch.cat([x, d4], dim=1)
-            x = self.conv_up4(x)
-            
-            x = self.up3(x)
-            x = torch.cat([x, d3], dim=1)
-            x = self.conv_up3(x)
-            
-            x = self.up2(x)
-            x = torch.cat([x, d2], dim=1)
-            x = self.conv_up2(x)
-            
-            x = self.up1(x)
-            x = torch.cat([x, d1], dim=1)
-            x = self.conv_up1(x)
-            
-            return torch.sigmoid(self.conv_last(x))
-    
-    # Create model and load state dict without strict checks
-    model = FlexibleUNet()
-    model.load_state_dict(state_dict, strict=False)
-    return model
-
-def create_simple_unet():
-    """Create a simplified UNet model as a fallback option"""
-    class SimpleUNet(nn.Module):
-        def __init__(self):
-            super().__init__()
-            # Minimal encoder
-            self.encoder = nn.Sequential(
-                nn.Conv2d(3, 64, 3, padding=1),
-                nn.ReLU(inplace=True),
-                nn.MaxPool2d(2),
-                nn.Conv2d(64, 128, 3, padding=1),
-                nn.ReLU(inplace=True),
-                nn.MaxPool2d(2)
-            )
-            
-            # Minimal decoder
-            self.decoder = nn.Sequential(
-                nn.Conv2d(128, 64, 3, padding=1),
-                nn.ReLU(inplace=True),
-                nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-                nn.Conv2d(64, 32, 3, padding=1),
-                nn.ReLU(inplace=True),
-                nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-                nn.Conv2d(32, 1, 1)
-            )
-            
-        def forward(self, x):
-            x = self.encoder(x)
-            x = self.decoder(x)
-            return torch.sigmoid(x)
-    
-    return SimpleUNet()
-
-def create_legacy_ase_res_unet():
-    """Create a legacy version of ASE_Res_UNet that matches the saved model architecture"""
-    class LegacyASE_Res_UNet(nn.Module):
-        def __init__(self, in_channels=3, out_channels=1):
-            super().__init__()
-            
-            # Encoder
-            self.inc = DoubleConv(in_channels, 64)
-            self.down1 = DownWithResidual(64, 128)
-            self.down2 = DownWithResidual(128, 256)
-            self.down3 = DownWithResidual(256, 512)
-            self.down4 = DownWithResidual(512, 1024)
-            
-            # Decoder - note the naming difference (up4 instead of up0)
-            self.up4 = UpWithAttention(1024, 512)
-            self.up3 = UpWithAttention(512, 256)
-            self.up2 = UpWithAttention(256, 128)
-            self.up1 = UpWithAttention(128, 64)
-            
-            # Final layer with a different structure
-            self.outc = nn.Sequential(
-                nn.Conv2d(64, out_channels, 1)
-            )
-
-        def forward(self, x):
-            # Encoder
-            x1 = self.inc(x)
-            x2 = self.down1(x1)
-            x3 = self.down2(x2)
-            x4 = self.down3(x3)
-            x5 = self.down4(x4)
-            
-            # Decoder
-            x = self.up4(x5, x4)
-            x = self.up3(x, x3)
-            x = self.up2(x, x2)
-            x = self.up1(x, x1)
-            
-            return torch.sigmoid(self.outc(x))
-            
-    return LegacyASE_Res_UNet()
-
-def create_robust_adaptive_unet_from_state_dict(state_dict, in_channels=3, out_channels=1):
-    """
-    Build a RobustAdaptiveUNet based on the encoder conv weights in the state_dict
-    """
-    encoder_channels = []
-    for k, v in state_dict.items():
-        if 'conv' in k and 'weight' in k and len(v.shape) == 4:
-            out_ch = v.shape[0]
-            if out_ch not in encoder_channels:
-                encoder_channels.append(out_ch)
-            if len(encoder_channels) >= 4:
-                break
-
-    if not encoder_channels:
-        encoder_channels = [64, 128, 256, 512]
-
-    decoder_channels = list(reversed(encoder_channels))
-    return RobustAdaptiveUNet(encoder_channels, decoder_channels, in_channels, out_channels)
 
 
 def save_uploaded_file(file):
@@ -1474,172 +639,57 @@ def save_uploaded_file(file):
     return filename
 
 def preprocess_image(image_path):
-    try:
-        img = Image.open(image_path).convert('RGB')
-        if img.mode != 'RGB':
-            raise ValueError("Invalid image mode")
-            
-        # Use torchvision.transforms instead of torch.nn
-        from torchvision import transforms
-        
-        transform = transforms.Compose([
-            transforms.Resize((256, 256)),
-            transforms.ToTensor()
-        ])
-        
-        # Apply transformations and add batch dimension
-        img_tensor = transform(img).unsqueeze(0)
-        return img_tensor
-        
-    except Exception as e:
-        app.logger.error(f"Image preprocessing error: {str(e)}")
-        app.logger.error(traceback.format_exc())
-        raise ValueError(f"Image processing failed: {str(e)}")
-
+    """EXACT replica of training preprocessing"""
+    # Load like DriveDataset
+    image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+    if image is None:
+        raise ValueError(f"Could not read image at {image_path}")
+    
+    # Resize and normalize
+    image = cv2.resize(image, (512, 512))
+    image = image.astype(np.float32) / 255.0  # No mean/std subtraction
+    
+    # Channel order
+    image = np.transpose(image, (2, 0, 1))  # HWC to CHW
+    
+    # Debug check
+    print(f"\n🔵 Input Stats:")
+    print(f"Min: {image.min():.4f}")
+    print(f"Max: {image.max():.4f}")
+    print(f"Mean: {image.mean():.4f}")
+    
+    return torch.from_numpy(image).unsqueeze(0)
 
 def save_segmentation_result(output, save_path):
-    """
-    Process model output and save segmentation result with improved visualization
-    """
-    import numpy as np
-    import cv2
-    from PIL import Image
-    import os
-
+    """Process and save segmentation results with proper tensor handling"""
     try:
-        # Load original image to get size
-        original_path = save_path.replace('result_', '')
-        if not os.path.exists(original_path):
-            print(f"[WARNING] Original image not found at {original_path}")
-            # Use output size if original not available
-            width, height = output.shape[-1], output.shape[-2]
-        else:
-            original_img = Image.open(original_path).convert('RGB')
-            width, height = original_img.size
-
+        # Ensure output is a tensor and apply sigmoid
+        if isinstance(output, np.ndarray):
+            output = torch.from_numpy(output)
+            
         # Process output tensor
-        # Handle DeepLabV3-style output
-        if isinstance(output, dict) and 'out' in output:
-            output = output['out']
-
         output = output.detach().cpu()
-
-        print(f"[INFO] Raw model output shape: {output.shape}, min: {output.min().item()}, max: {output.max().item()}")
-
-        # Handle DeepLabV3 format where output is in a dictionary
-        if isinstance(output, dict) and 'out' in output:
-            output = output['out']
-
-        # Handle different output structures
-        if output.dim() == 4:  # [B, C, H, W]
-            if output.shape[1] > 1:  # Multi-class segmentation
-                output = output.squeeze(0)  # Remove batch dimension
-                output = torch.argmax(output, dim=0)  # Get class indices
-            else:  # Binary segmentation
-                output = output.squeeze(0).squeeze(0)  # Remove extra dimensions
-        elif output.dim() == 3 and output.shape[0] > 1:  # [C, H, W]
-            output = torch.argmax(output, dim=0)  # Get class indices
-        elif output.dim() == 3 and output.shape[0] == 1:  # [1, H, W]
-            output = output.squeeze(0)  # Remove channel dimension
-
-        # Convert to numpy
-        output_np = output.numpy()
+        probabilities = torch.sigmoid(output)
         
-        # Diagnostic info
-        print(f"[INFO] Processed output shape: {output_np.shape}")
-        print(f"[INFO] Output range: min={output_np.min()}, max={output_np.max()}")
-        print(f"[INFO] Unique values: {np.unique(output_np)}")
-
-        # Resize to original image dimensions
-        output_resized = cv2.resize(output_np, (width, height), 
-                                   interpolation=cv2.INTER_NEAREST)
-
-        # Create colored output for better visualization
-        if output_resized.max() <= 1.0 and output_resized.dtype != np.uint8:
-            # Likely probabilities - convert to binary
-            binary_mask = (output_resized > 0.5).astype(np.uint8) * 255
-            
-            # Create a colored overlay
-            colored_mask = np.zeros((height, width, 3), dtype=np.uint8)
-            colored_mask[..., 0] = binary_mask  # Blue channel
-            colored_mask[..., 1] = 0  # Green channel
-            colored_mask[..., 2] = binary_mask  # Red channel
-            
-            # Save both binary and colored versions
-            Image.fromarray(binary_mask).save(save_path.replace('.', '_binary.'))
-            Image.fromarray(colored_mask).save(save_path)
-            print("[INFO] Saved binary and colored masks")
-        else:
-            # Handle multi-class segmentation
-            # Define a colormap (up to 20 classes)
-            colormap = np.array([
-                [0, 0, 0],        # Class 0 - Background (black)
-                [255, 0, 0],      # Class 1 - Red
-                [0, 255, 0],      # Class 2 - Green
-                [0, 0, 255],      # Class 3 - Blue
-                [255, 255, 0],    # Class 4 - Yellow
-                [255, 0, 255],    # Class 5 - Magenta
-                [0, 255, 255],    # Class 6 - Cyan
-                [128, 0, 0],      # Class 7 - Dark red
-                [0, 128, 0],      # Class 8 - Dark green
-                [0, 0, 128],      # Class 9 - Dark blue
-                [128, 128, 0],    # Class 10 - Olive
-                [128, 0, 128],    # Class 11 - Purple
-                [0, 128, 128],    # Class 12 - Teal
-                [128, 128, 128],  # Class 13 - Gray
-                [64, 0, 0],       # Class 14 - Maroon
-                [192, 0, 0],      # Class 15 - Crimson
-                [64, 128, 0],     # Class 16 - Forest green
-                [192, 128, 0],    # Class 17 - Orange
-                [64, 0, 128],     # Class 18 - Indigo
-                [192, 0, 128],    # Class 19 - Pink
-            ], dtype=np.uint8)
-
-            # Ensure colormap has enough colors
-            max_class = int(np.ceil(output_resized.max()))
-            if max_class >= len(colormap):
-                more_colors = np.random.randint(0, 255, size=(max_class + 1 - len(colormap), 3), dtype=np.uint8)
-                colormap = np.vstack([colormap, more_colors])
-
-            # Create color-coded segmentation mask
-            output_resized = output_resized.astype(np.int32)
-            color_mask = colormap[output_resized]
-            
-            # If original image exists, create overlay
-            if os.path.exists(original_path):
-                try:
-                    # Read original image
-                    original = cv2.imread(original_path)
-                    original = cv2.resize(original, (width, height))
-                    
-                    # Create a 50% blend of original and mask
-                    alpha = 0.7  # Transparency factor
-                    overlay = cv2.addWeighted(original, 1-alpha, color_mask, alpha, 0)
-                    
-                    # Save the overlay version
-                    cv2.imwrite(save_path.replace('.', '_overlay.'), overlay)
-                    print("[INFO] Saved segmentation overlay")
-                except Exception as overlay_error:
-                    print(f"[WARNING] Overlay creation failed: {str(overlay_error)}")
-
-            # Save color-coded segmentation mask
-            Image.fromarray(color_mask).save(save_path)
-            print("[INFO] Saved color-coded segmentation mask")
+        # Convert to numpy array for OpenCV
+        mask_np = probabilities.numpy().squeeze()  # Remove batch and channel dims
+        
+        # Threshold and scale
+        mask = (mask_np > 0.5).astype(np.uint8) * 255
+        
+        # Save result
+        cv2.imwrite(save_path, mask)
+        
+        # Debug output
+        print(f"Processed mask - Foreground %: {(mask > 0).mean() * 100:.2f}%")
 
     except Exception as e:
-        print(f"[ERROR] Saving segmentation result failed: {str(e)}")
-        print(traceback.format_exc())
-        
-        # Create a simple fallback image in case of errors
-        try:
-            fallback_img = np.zeros((256, 256, 3), dtype=np.uint8)
-            cv2.putText(fallback_img, "Error processing", (20, 128), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
-            cv2.imwrite(save_path, fallback_img)
-        except:
-            pass
-
-
+        print(f"❌ Error saving segmentation result: {str(e)}")
+        # Create error image
+        error_img = np.zeros((512, 512), dtype=np.uint8)
+        cv2.putText(error_img, "Processing Error", (50, 256), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 1, 255, 2)
+        cv2.imwrite(save_path, error_img)
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
