@@ -127,7 +127,12 @@ async function processImage() {
 
         document.getElementById('originalResult').src = result.original;
         document.getElementById('processedResult').src = result.processed;
-        
+        if (result.metrics) {
+            document.getElementById('foregroundPercent').textContent = 
+                `${result.metrics.foreground_percent}%`;
+            document.getElementById('foregroundPixels').textContent = 
+                `${result.metrics.foreground_pixels.toLocaleString()} / ${result.metrics.total_pixels.toLocaleString()}`;
+        }
     } catch (error) {
         handleProcessingError(error);
     } finally {
@@ -205,4 +210,32 @@ async function handleModelUpload(e) {
     } finally {
         e.target.value = '';
     }
+}
+
+// Update handleFileSelect function:
+function handleFileSelect(e) {
+    const imageInput = document.getElementById('imageInput');
+    const file = imageInput.files[0];
+
+    if (!file || !file.type.startsWith('image/')) {
+        alert('Veuillez télécharger une image valide');
+        resetFileInput();
+        return;
+    }
+
+    // Read image metadata
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const img = new Image();
+        img.onload = function() {
+            document.getElementById('inputDimensions').textContent = 
+                `${this.width}px × ${this.height}px`;
+            document.getElementById('inputSize').textContent = 
+                `${(file.size/1024).toFixed(1)} KB`;
+        };
+        img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+
+    showUploadSuccess();
 }

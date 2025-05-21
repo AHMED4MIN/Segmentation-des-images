@@ -487,7 +487,12 @@ def process_image():
             
             mask = (mask_np > 0.5).astype(np.uint8) * 255
             cv2.imwrite(save_path, mask)
-            print(f"✅ Mask saved with {np.mean(mask > 0):.2%} foreground")
+            
+            # Calculate metrics (NEW ADDITION)
+            total_pixels = mask.size
+            foreground_pixels = np.count_nonzero(mask)
+            foreground_percent = (foreground_pixels / total_pixels) * 100
+            print(f"✅ Mask saved with {foreground_percent:.2f}% foreground")
         except Exception as save_error:
             print(f"❌ Mask saving failed: {str(save_error)}")
             raise
@@ -502,10 +507,15 @@ def process_image():
             print(f"⚠️ Overlay creation failed: {str(overlay_error)}")
             overlay_path = None
 
-        # Prepare response
+        # Prepare response (MODIFIED TO INCLUDE METRICS)
         response = {
             'original': url_for('uploaded_file', filename=filename),
-            'processed': url_for('uploaded_file', filename=result_filename)
+            'processed': url_for('uploaded_file', filename=result_filename),
+            'metrics': {
+                'foreground_percent': round(foreground_percent, 2),
+                'total_pixels': int(total_pixels),
+                'foreground_pixels': int(foreground_pixels)
+            }
         }
         if overlay_path:
             response['overlay'] = url_for('uploaded_file', filename=f"overlay_{filename}")

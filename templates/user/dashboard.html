@@ -32,7 +32,7 @@
                     </button>
                     <input type="file" id="modelUpload" accept=".pth,.h5,.onnx" hidden>
                 </div>
-
+            
                 <div class="upload-section">
                     <div class="image-upload-box" id="dropZone">
                         <input type="file" id="imageInput" accept="image/*" hidden>
@@ -55,6 +55,32 @@
                         <img id="processedResult"
                             src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
                             alt="Traité" class="result-image">
+                    </div>
+                </div>
+                
+                <div class="metrics-section">
+                    <div class="metrics-container">
+                        <h3>Métriques d'entrée</h3>
+                        <div class="metric-item">
+                            <span class="metric-label">Dimensions:</span>
+                            <span class="metric-value" id="inputDimensions">-</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Taille fichier:</span>
+                            <span class="metric-value" id="inputSize">-</span>
+                        </div>
+                    </div>
+            
+                    <div class="metrics-container">
+                        <h3>Métriques de sortie</h3>
+                        <div class="metric-item">
+                            <span class="metric-label">Zone segmentée:</span>
+                            <span class="metric-value" id="foregroundPercent">-</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Pixels détectés:</span>
+                            <span class="metric-value" id="foregroundPixels">-</span>
+                        </div>
                     </div>
                 </div>
             </div>
