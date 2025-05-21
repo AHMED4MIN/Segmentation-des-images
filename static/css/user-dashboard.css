@@ -139,6 +139,42 @@
     font-size: 1.1em;
     margin-top: 15px;
 }
+/* la vérité terrain */
+#gtDropZone {
+    border-color: #2ecc71;
+    background-color: #f8fff9;
+}
+
+#gtDropZone:hover {
+    border-color: #27ae60;
+}
+/* Ajouter ces styles */
+.hidden {
+    display: none !important;
+}
+
+.toggle-gt-btn {
+    width: 100%;
+    padding: 10px;
+    margin: 10px 0;
+    background-color: #f8f9fa;
+    border: 2px dashed #3498db;
+    border-radius: 8px;
+    cursor: pointer;
+    color: #3498db;
+    transition: all 0.3s ease;
+}
+
+.toggle-gt-btn:hover {
+    background-color: #e8f4ff;
+    border-color: #2980b9;
+}
+
+#gtUploadSection {
+    width: 100%;
+    margin-top: 10px;
+}
+
 
 .process-btn {
     width: 100%;
@@ -272,12 +308,18 @@
     font-size: 1.1em;
 }
 
+.metric-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+}
+
 .metric-item {
     display: flex;
     justify-content: space-between;
-    margin-bottom: 10px;
-    padding: 8px 0;
-    border-bottom: 1px solid #eee;
+    padding: 8px;
+    background: #f8f9fa;
+    border-radius: 6px;
 }
 
 .metric-item:last-child {

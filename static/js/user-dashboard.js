@@ -11,8 +11,12 @@ function initializeEventHandlers() {
     const imageInput = document.getElementById('imageInput');
     
     dropZone.addEventListener('click', () => imageInput.click());
+    const gtInput = document.getElementById('gtInput');
     imageInput.addEventListener('change', handleFileSelect);
     
+    // Gestion du click
+    gtDropZone.addEventListener('click', () => gtInput.click());
+
     // Gestion drag and drop
     ['dragover', 'dragleave', 'drop'].forEach(event => {
         dropZone.addEventListener(event, preventDefaults);
@@ -21,7 +25,7 @@ function initializeEventHandlers() {
     dropZone.addEventListener('dragover', highlightDropZone);
     dropZone.addEventListener('dragleave', unhighlightDropZone);
     dropZone.addEventListener('drop', handleDrop);
-
+    gtInput.addEventListener('change', handleGtSelect);
     // Bouton de traitement
     document.getElementById('processBtn').addEventListener('click', processImage);
 
@@ -36,7 +40,54 @@ function initializeEventHandlers() {
     });
 
     document.getElementById('modelUpload').addEventListener('change', handleModelUpload);
+
+    document.getElementById('toggleGtBtn').addEventListener('click', toggleGtUpload);
 }
+
+function toggleGtUpload() {
+    const gtSection = document.getElementById('gtUploadSection');
+    gtSection.classList.toggle('hidden');
+    
+    // Optionnel: Changer le texte du bouton
+    const btn = document.getElementById('toggleGtBtn');
+    if (gtSection.classList.contains('hidden')) {
+        btn.textContent = '📤 Uploader une image vérité terrain';
+    } else {
+        btn.textContent = '✖️ Masquer la vérité terrain';
+    }
+}
+
+function handleGtDrop(e) {
+    const dt = e.dataTransfer;
+    const files = dt.files;
+    document.getElementById('gtInput').files = files;
+    handleGtSelect({ target: { files } });
+}
+
+function handleGtSelect(e) {
+    const gtInput = document.getElementById('gtInput');
+    const file = gtInput.files[0];
+    
+    if (!file || !file.type.startsWith('image/')) {
+        alert('Veuillez télécharger une image valide pour la vérité terrain');
+        gtInput.value = '';
+        return;
+    }
+    
+    // Mettre à jour le style
+    gtDropZone.classList.add('upload-success');
+    setTimeout(() => gtDropZone.classList.remove('upload-success'), 2000);
+}
+
+// Modifier les fonctions highlight/unhighlight pour être génériques
+function highlightDropZone(element) {
+    element.classList.add('dragover');
+}
+
+function unhighlightDropZone(element) {
+    element.classList.remove('dragover');
+}
+
 
 function switchProcessType(e) {
     document.querySelectorAll('.sidebar-btn').forEach(b => b.classList.remove('active'));
@@ -110,6 +161,11 @@ async function processImage() {
         formData.append('image', file);
         formData.append('model_id', modelId);
 
+         const gtInput = document.getElementById('gtInput');
+            if (gtInput.files[0]) {
+                formData.append('ground_truth', gtInput.files[0]);
+            }
+
         const response = await fetch('/process-image', {
             method: 'POST',
             body: formData
@@ -128,11 +184,14 @@ async function processImage() {
         document.getElementById('originalResult').src = result.original;
         document.getElementById('processedResult').src = result.processed;
         if (result.metrics) {
-            document.getElementById('foregroundPercent').textContent = 
-                `${result.metrics.foreground_percent}%`;
-            document.getElementById('foregroundPixels').textContent = 
-                `${result.metrics.foreground_pixels.toLocaleString()} / ${result.metrics.total_pixels.toLocaleString()}`;
-        }
+        // Mettre à jour toutes les métriques
+        const metrics = result.metrics;
+        document.getElementById('iou').textContent = (metrics.iou * 100).toFixed(1) + '%';
+        document.getElementById('dice').textContent = (metrics.dice * 100).toFixed(1) + '%';
+        document.getElementById('precision').textContent = (metrics.precision * 100).toFixed(1) + '%';
+        document.getElementById('recall').textContent = (metrics.recall * 100).toFixed(1) + '%';
+        document.getElementById('accuracy').textContent = (metrics.accuracy * 100).toFixed(1) + '%';
+    }
     } catch (error) {
         handleProcessingError(error);
     } finally {

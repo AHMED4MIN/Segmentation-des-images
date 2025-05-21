@@ -38,6 +38,19 @@
                         <input type="file" id="imageInput" accept="image/*" hidden>
                         <p>Glisser-déposer ou cliquer pour télécharger une image</p>
                     </div>
+
+                    <button type="button" id="toggleGtBtn" class="toggle-gt-btn">
+                        📤 Uploader une image vérité terrain
+                    </button>
+                    <!-- Nouveau champ pour la vérité terrain -->
+                    <!-- Section masquée initialement -->
+                    <div id="gtUploadSection" class="hidden">
+                        <div class="image-upload-box" id="gtDropZone">
+                            <input type="file" id="gtInput" accept="image/*" hidden>
+                            <p>Vérité terrain (masque de référence)</p>
+                        </div>
+                    </div>
+
                     <button class="process-btn" id="processBtn">
                         <span class="btn-text">Traiter l'image</span>
                     </button>
@@ -70,16 +83,31 @@
                             <span class="metric-value" id="inputSize">-</span>
                         </div>
                     </div>
-            
+                
+                    <!-- métriques de sortie -->
                     <div class="metrics-container">
                         <h3>Métriques de sortie</h3>
-                        <div class="metric-item">
-                            <span class="metric-label">Zone segmentée:</span>
-                            <span class="metric-value" id="foregroundPercent">-</span>
-                        </div>
-                        <div class="metric-item">
-                            <span class="metric-label">Pixels détectés:</span>
-                            <span class="metric-value" id="foregroundPixels">-</span>
+                        <div class="metric-grid">
+                            <div class="metric-item">
+                                <span class="metric-label">IoU:</span>
+                                <span class="metric-value" id="iou">-</span>
+                            </div>
+                            <div class="metric-item">
+                                <span class="metric-label">Dice:</span>
+                                <span class="metric-value" id="dice">-</span>
+                            </div>
+                            <div class="metric-item">
+                                <span class="metric-label">Précision:</span>
+                                <span class="metric-value" id="precision">-</span>
+                            </div>
+                            <div class="metric-item">
+                                <span class="metric-label">Rappel:</span>
+                                <span class="metric-value" id="recall">-</span>
+                            </div>
+                            <div class="metric-item">
+                                <span class="metric-label">Exactitude:</span>
+                                <span class="metric-value" id="accuracy">-</span>
+                            </div>
                         </div>
                     </div>
                 </div>

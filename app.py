@@ -488,11 +488,55 @@ def process_image():
             mask = (mask_np > 0.5).astype(np.uint8) * 255
             cv2.imwrite(save_path, mask)
             
-            # Calculate metrics (NEW ADDITION)
+            # Calculate basic metrics
             total_pixels = mask.size
             foreground_pixels = np.count_nonzero(mask)
             foreground_percent = (foreground_pixels / total_pixels) * 100
             print(f"✅ Mask saved with {foreground_percent:.2f}% foreground")
+
+            # Initialize response with basic metrics
+            response = {
+                'original': url_for('uploaded_file', filename=filename),
+                'processed': url_for('uploaded_file', filename=result_filename),
+                'metrics': {
+                    'foreground_percent': round(foreground_percent, 2),
+                    'total_pixels': int(total_pixels),
+                    'foreground_pixels': int(foreground_pixels)
+                }
+            }
+
+            # Calculate advanced metrics if ground truth exists
+            if 'ground_truth' in request.files and request.files['ground_truth'].filename != '':
+                # Load ground truth
+                gt_file = request.files['ground_truth']
+                gt_filename = save_uploaded_file(gt_file)
+                gt_path = os.path.join(app.config['UPLOAD_FOLDER'], gt_filename)
+                gt_mask = cv2.imread(gt_path, cv2.IMREAD_GRAYSCALE)
+                gt_mask = (gt_mask > 127).astype(np.uint8)
+
+                # Resize if necessary
+                if gt_mask.shape != mask.shape:
+                    gt_mask = cv2.resize(gt_mask, (mask.shape[1], mask.shape[0]))
+
+                # Calculate metrics
+                y_pred = (mask > 0).astype(np.uint8)
+                y_true = gt_mask
+
+                tp = np.logical_and(y_pred == 1, y_true == 1).sum()
+                fp = np.logical_and(y_pred == 1, y_true == 0).sum()
+                fn = np.logical_and(y_pred == 0, y_true == 1).sum()
+                tn = np.logical_and(y_pred == 0, y_true == 0).sum()
+
+                epsilon = 1e-7
+                metrics = {
+                    'iou': float(tp / (tp + fp + fn + epsilon)),
+                    'dice': float((2 * tp) / (2 * tp + fp + fn + epsilon)),
+                    'precision': float(tp / (tp + fp + epsilon)),
+                    'recall': float(tp / (tp + fn + epsilon)),
+                    'accuracy': float((tp + tn) / (tp + tn + fp + fn + epsilon))
+                }
+                response['metrics'].update(metrics)
+
         except Exception as save_error:
             print(f"❌ Mask saving failed: {str(save_error)}")
             raise
@@ -503,22 +547,9 @@ def process_image():
             overlay = create_overlay(original, mask)
             overlay_path = os.path.join(app.config['UPLOAD_FOLDER'], f"overlay_{filename}")
             cv2.imwrite(overlay_path, overlay)
+            response['overlay'] = url_for('uploaded_file', filename=f"overlay_{filename}")
         except Exception as overlay_error:
             print(f"⚠️ Overlay creation failed: {str(overlay_error)}")
-            overlay_path = None
-
-        # Prepare response (MODIFIED TO INCLUDE METRICS)
-        response = {
-            'original': url_for('uploaded_file', filename=filename),
-            'processed': url_for('uploaded_file', filename=result_filename),
-            'metrics': {
-                'foreground_percent': round(foreground_percent, 2),
-                'total_pixels': int(total_pixels),
-                'foreground_pixels': int(foreground_pixels)
-            }
-        }
-        if overlay_path:
-            response['overlay'] = url_for('uploaded_file', filename=f"overlay_{filename}")
 
         return jsonify(response)
 
@@ -532,7 +563,6 @@ def process_image():
             cursor.close()
         if connection and connection.is_connected(): 
             connection.close()
-        # Cleanup GPU memory
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
