@@ -8,6 +8,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Jura:wght@400;600&display=swap" rel="stylesheet">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Calistoga&display=swap" rel="stylesheet">
 </head>
 <body>
@@ -15,7 +16,7 @@
         <div class="left-section">
             <h1>Explorez <br> la segmentation avancée</h1>
             <img src="{{ url_for('static', filename='assets/sign-upSvg.svg') }}" alt="Illustration">
-        </div>
+        </div> 
         <div class="right-section">
             <h2>S'inscrire</h2>
             <form action="{{ url_for('signup') }}" method="post">
@@ -26,11 +27,29 @@
                 <input type="text" name="cin" placeholder="CIN" required>
                 <input type="date" name="date_of_birth" required>
 			    <input type="text" name="username" placeholder="Username" required>
-                <input type="password" name="password" placeholder="Mot de passe" required>	    
+                <div class="password-container">
+                    <input type="password" id="password" name="password" placeholder="Mot de passe" required>
+                    <i class="fa-solid fa-eye toggle-password" onclick="togglePasswordVisibility()"></i>
+                </div>
 			    <button type="submit">S'inscrire</button>
 			</form>
             <p><a href="{{ url_for('login') }}">Vous avez deja un compte ?</a></p>
         </div>
     </div>
+
+
+<script>
+function togglePasswordVisibility() {
+    const passwordInput = document.getElementById('password');
+    const toggleIcon = document.querySelector('.toggle-password');
+    const isPassword = passwordInput.type === 'password';
+    
+    passwordInput.type = isPassword ? 'text' : 'password';
+    toggleIcon.classList.toggle('fa-eye');
+    toggleIcon.classList.toggle('fa-eye-slash');
+}
+</script>
+
+
 </body>
 </html>

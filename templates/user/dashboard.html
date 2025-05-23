@@ -37,6 +37,7 @@
                     <div class="image-upload-box" id="dropZone">
                         <input type="file" id="imageInput" accept="image/*" hidden>
                         <p>Glisser-déposer ou cliquer pour télécharger une image</p>
+                        <p id="imageStatus" class="upload-status hidden">✓ Image sélectionnée</p>
                     </div>
 
                     <button type="button" id="toggleGtBtn" class="toggle-gt-btn">
@@ -48,6 +49,7 @@
                         <div class="image-upload-box" id="gtDropZone">
                             <input type="file" id="gtInput" accept="image/*" hidden>
                             <p>Vérité terrain (masque de référence)</p>
+                            <p id="imageStatus" class="upload-status hidden">✓ Image sélectionnée</p>
                         </div>
                     </div>
 
@@ -111,6 +113,7 @@
                         </div>
                     </div>
                 </div>
+                <button id="downloadResultsBtn" class="process-btn" style="margin-top: 20px;">Exporter le PDF </button>
             </div>
         </div>
 

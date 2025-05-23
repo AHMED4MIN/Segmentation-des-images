@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, render_template, request, redirect, url_for, session, flash, send_from_directory
+from flask import Flask, jsonify, render_template, request, redirect, url_for, session, flash, send_from_directory, send_file
 from database import create_connection
 import mysql.connector
 from mysql.connector import Error
@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 import os
+import io
 from datetime import datetime
 from PIL import Image
 import traceback
@@ -18,6 +19,7 @@ from model import build_unet
 import time
 import traceback
 from typing import Union
+from fpdf import FPDF
 
 
 app = Flask(__name__)
@@ -730,6 +732,7 @@ def save_segmentation_result(output, save_path):
         cv2.putText(error_img, "Processing Error", (50, 256), 
                    cv2.FONT_HERSHEY_SIMPLEX, 1, 255, 2)
         cv2.imwrite(save_path, error_img)
+
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
@@ -758,6 +761,60 @@ def get_models():
     finally:
         cursor.close()
         connection.close()
+
+@app.route('/download-results', methods=['POST'])
+def download_results():
+    data = request.json
+    original_filename = data.get('original')
+    processed_filename = data.get('processed')
+    metrics = data.get('metrics', {})
+
+    original_path = os.path.join(app.config['UPLOAD_FOLDER'], original_filename)
+    processed_path = os.path.join(app.config['UPLOAD_FOLDER'], processed_filename)
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(0, 10, "Rapport de Résultat de Segmentation", ln=True, align='C')
+
+    pdf.set_font("Arial", '', 12)
+    pdf.ln(10)
+    pdf.cell(0, 10, f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True)
+
+    # Images
+    if os.path.exists(original_path):
+        pdf.ln(5)
+        pdf.set_font("Arial", 'B', 12)
+        pdf.cell(0, 10, "Image Originale", ln=True)
+        pdf.image(original_path, w=100)
+
+    if os.path.exists(processed_path):
+        pdf.ln(5)
+        pdf.set_font("Arial", 'B', 12)
+        pdf.cell(0, 10, "Image Traité", ln=True)
+        pdf.image(processed_path, w=100)
+
+    # Metrics
+    pdf.ln(10)
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 10, "Métriques:", ln=True)
+    pdf.set_font("Arial", '', 12)
+    for key, value in metrics.items():
+        pdf.cell(0, 10, f"{key.capitalize()}: {value}", ln=True)
+
+    pdf_bytes = pdf.output(dest='S').encode('latin1')
+    output = io.BytesIO(pdf_bytes)
+
+
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name="rapport_segmentation.pdf",
+        mimetype="application/pdf"
+    )
+
 
 if __name__ == '__main__':
     if not os.path.exists(app.config['UPLOAD_FOLDER']):

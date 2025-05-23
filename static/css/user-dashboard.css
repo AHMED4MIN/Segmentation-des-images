@@ -210,6 +210,8 @@
     background: #f8f9fa;
     padding: 20px;
     border-radius: 8px;
+    flex-direction: column;
+    align-items: center;
 }
 
 .result-container h3 {
@@ -219,10 +221,14 @@
 }
 
 .result-image {
-    width: 100%;
+    max-width: 300px;
+    max-height: 300px;
+    width: auto;
     height: auto;
     border-radius: 6px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    display: block;
+    margin: 0 auto;
 }
 
 /* États */
@@ -234,6 +240,12 @@
 .upload-success {
     border-color: #2ecc71 !important;
     background-color: #e8f6ee;
+    animation: flashBorder 3.5s ease-in-out;
+}
+@keyframes flashBorder {
+    0% { box-shadow: 0 0 0px #2ecc71; }
+    50% { box-shadow: 0 0 10px #2ecc71; }
+    100% { box-shadow: 0 0 0px #2ecc71; }
 }
 
 .loading-spinner {

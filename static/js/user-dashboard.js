@@ -65,18 +65,17 @@ function handleGtDrop(e) {
 }
 
 function handleGtSelect(e) {
-    const gtInput = document.getElementById('gtInput');
-    const file = gtInput.files[0];
-    
-    if (!file || !file.type.startsWith('image/')) {
-        alert('Veuillez télécharger une image valide pour la vérité terrain');
-        gtInput.value = '';
-        return;
-    }
-    
-    // Mettre à jour le style
+    const gtDropZone = document.getElementById('gtDropZone');
     gtDropZone.classList.add('upload-success');
+
+    const status = document.getElementById('gtStatus');
+    if (status) {
+        status.classList.remove('hidden');
+        setTimeout(() => status.classList.add('hidden'), 2000);
+    }
+
     setTimeout(() => gtDropZone.classList.remove('upload-success'), 2000);
+
 }
 
 // Modifier les fonctions highlight/unhighlight pour être génériques
@@ -137,9 +136,15 @@ function handleFileSelect(e) {
 function showUploadSuccess() {
     const dropZone = document.getElementById('dropZone');
     dropZone.classList.add('upload-success');
+
+    const status = document.getElementById('imageStatus');
+    if (status) {
+        status.classList.remove('hidden');
+        setTimeout(() => status.classList.add('hidden'), 2000);
+    }
+
     setTimeout(() => dropZone.classList.remove('upload-success'), 2000);
 }
-
 function resetFileInput() {
     document.getElementById('imageInput').value = '';
 }
@@ -298,3 +303,40 @@ function handleFileSelect(e) {
 
     showUploadSuccess();
 }
+
+
+document.getElementById('downloadResultsBtn').addEventListener('click', async () => {
+    const originalSrc = document.getElementById('originalResult').src;
+    const processedSrc = document.getElementById('processedResult').src;
+
+    const original = originalSrc.split('/').pop();
+    const processed = processedSrc.split('/').pop();
+
+    const metrics = {
+        iou: document.getElementById('iou').textContent,
+        dice: document.getElementById('dice').textContent,
+        precision: document.getElementById('precision').textContent,
+        recall: document.getElementById('recall').textContent,
+        accuracy: document.getElementById('accuracy').textContent,
+        inputSize: document.getElementById('inputSize').textContent,
+        inputDimensions: document.getElementById('inputDimensions').textContent
+    };
+
+    const response = await fetch('/download-results', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ original, processed, metrics })
+    });
+
+    if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'rapport_segmentation.pdf';
+        a.click();
+        window.URL.revokeObjectURL(url);
+    } else {
+        alert('Erreur lors de la création du PDF.');
+    }
+});
